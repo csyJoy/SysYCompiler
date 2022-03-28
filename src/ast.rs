@@ -66,14 +66,28 @@ impl GetKoopa for Block {
         ("}}\n")
     }
 }
-
+#[derive(Debug)]
+pub enum StmtType{
+    Return(Exp),
+}
 #[derive(Debug)]
 pub struct Stmt{
-    pub exp: Exp,
+    pub stmt_type: StmtType,
 }
 impl GetKoopa for Stmt{
     fn get_koopa(&self) -> String {
-        self.exp.get_koopa()
+        match &self.stmt_type{
+            StmtType::Return(exp) => {
+                let exp_string = exp.get_koopa();
+                let exp_reg_idx = get_reg_idx();
+                if let Ok(c) = exp_string.parse::<i32>(){
+                    format!("\tret {}\n", c)
+                } else {
+                    exp_string + &format!("\treg %{}\n", exp_reg_idx)
+                }
+            }
+            _ => "ParserError".to_string()
+        }
     }
 }
 

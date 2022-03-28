@@ -1,5 +1,5 @@
 // lalrpop 里的约定
-use crate::ast::{CompUnit, FuncDef, FuncType, Block, Stmt, Exp, UnaryExp, PrimaryExp, UnaryOp, UnaryOperator};
+use crate::ast::{CompUnit, FuncDef, FuncType, Block, Stmt, Exp, UnaryExp, PrimaryExp, UnaryOp, UnaryOperator, StmtType};
 
 grammar;
 
@@ -27,7 +27,7 @@ FuncType: FuncType = "int" => FuncType::Int;
 
 Block: Block = "{" <stmt: Stmt> "}" => Block { <> };
 
-Stmt: Stmt = "return" <exp: Exp> ";" => Stmt { <> };
+Stmt: Stmt = "return" <exp: Exp> ";" => Stmt { stmt_type: StmtType::Return(<>) };
 
 Exp: Exp = <exp: UnaryExp> => Exp { exp: Some(Box::new(exp)) };
 
