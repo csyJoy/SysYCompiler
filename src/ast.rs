@@ -226,14 +226,21 @@ impl GetKoopa for MulExp{
                 let a_reg_idx = get_reg_idx();
                 let c_string = c.get_koopa();
                 let c_reg_idx = get_reg_idx();
+                let e = add_reg_idx();
                 if let Ok(d) = c_string.parse::<i32>(){
-                    let e = add_reg_idx();
-                    a_string + &c_string + &format!("\t%{} = {} %{}, {}\n",e, operation,
-                                                    a_reg_idx,d)
+                    if let Ok(f) = a_string.parse::<i32>(){
+                        format!("\t%{} = {} {}, {}\n", e, operation, f, d)
+                    } else {
+                        a_string + &format!("\t%{} = {} %{}, {}\n",e, operation,
+                                                        a_reg_idx,d)
+                    }
                 } else {
-                    let e = add_reg_idx();
-                    a_string + &c_string + &format!("\t%{} = {} %{}, %{}\n",e, operation,
-                                                    a_reg_idx,c_reg_idx)
+                    if let Ok(f) = a_string.parse::<i32>(){
+                        c_string + &format!("\t%{} = {} {}, %{}\n", e, operation, f, c_reg_idx)
+                    } else {
+                        a_string + &c_string + &format!("\t%{} = {} %{}, %{}\n",e, operation,
+                                                        a_reg_idx,c_reg_idx)
+                    }
                 }
             } else {
                 "ParserError".to_string()

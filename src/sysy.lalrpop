@@ -31,11 +31,7 @@ Stmt: Stmt = "return" <exp: Exp> ";" => Stmt { stmt_type: StmtType::Return(<>) }
 
 Exp: Exp = <exp: AddExp> => Exp { exp: Some(Box::new(exp)) };
 
-<<<<<<< Updated upstream
-=======
-Exp: Exp = <exp: AddExp> => Exp { exp: Some(Box::new(exp)) };
 
->>>>>>> Stashed changes
 MulExp: MulExp = {
     <unary_exp: UnaryExp> => MulExp{ unary_exp: Some(Box::new(<>)), mul_operate: None},
     <mul_exp: MulExp> "*" <unary_exp: UnaryExp> => MulExp{unary_exp: None, mul_operate: Some((Box::new(mul_exp),
