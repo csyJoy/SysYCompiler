@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use lazy_static::lazy_static;
 use std::sync::Mutex;
+use crate::ast::AddOperator::Add;
 
 pub type int = i32;
 pub trait GetKoopa{
@@ -93,7 +94,7 @@ impl GetKoopa for Stmt{
 
 #[derive(Debug)]
 pub struct Exp{
-    pub exp: Option<Box<UnaryExp>>
+    pub exp: Option<Box<AddExp>>
 }
 impl GetKoopa for Exp{
     fn get_koopa(&self) -> String {
@@ -194,4 +195,97 @@ pub enum UnaryOperator{
 #[derive(Debug)]
 pub struct UnaryOp{
     pub unary_op: UnaryOperator
+}
+
+#[derive(Debug)]
+pub enum MulOperator{
+    Times,
+    Divide,
+    Quote
+}
+
+#[derive(Debug)]
+pub struct MulExp{
+    pub unary_exp: Option<Box<UnaryExp>>,
+    pub mul_operate: Option<(Box<MulExp>,MulOperator,Box<UnaryExp>)>,
+}
+impl GetKoopa for MulExp{
+    fn get_koopa(&self) -> String {
+        if let Some(a) = &self.unary_exp{
+            a.get_koopa()
+        } else {
+            if let Some((a,b,c)) = &self.mul_operate{
+                let mut operation = "".to_string();
+                match b{
+                    MulOperator::Divide => operation = "div".to_string(),
+                    MulOperator::Times => operation = "mul".to_string(),
+                    MulOperator::Quote => operation = "mod".to_string(),
+                    _ => operation = "".to_string()
+                }
+                let a_string = a.get_koopa();
+                let a_reg_idx = get_reg_idx();
+                let c_string = c.get_koopa();
+                let c_reg_idx = get_reg_idx();
+                if let Ok(d) = c_string.parse::<i32>(){
+                    let e = add_reg_idx();
+                    a_string + &c_string + &format!("\t%{} = {} %{}, {}\n",e, operation,
+                                                    a_reg_idx,d)
+                } else {
+                    let e = add_reg_idx();
+                    a_string + &c_string + &format!("\t%{} = {} %{}, %{}\n",e, operation,
+                                                    a_reg_idx,c_reg_idx)
+                }
+            } else {
+                "ParserError".to_string()
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum AddOperator{
+    Add,
+    Sub
+}
+#[derive(Debug)]
+pub struct AddExp{
+    pub mul_exp: Option<Box<MulExp>>,
+    pub add_operate: Option<(Box<AddExp>, AddOperator, Box<MulExp>)>
+}
+impl GetKoopa for AddExp{
+    fn get_koopa(&self) -> String {
+        if let Some(a) = &self.mul_exp{
+            a.get_koopa()
+        } else {
+            if let Some((a, b ,c)) = &self.add_operate{
+                let mut operation = "".to_string();
+                match b{
+                    AddOperator::Add => operation = "add".to_string(),
+                    AddOperator::Sub => operation = "sub".to_string(),
+                    _ => operation = "".to_string(),
+                }
+                let a_string = a.get_koopa();
+                let a_reg_idx = get_reg_idx();
+                let c_string = c.get_koopa();
+                let c_reg_idx = get_reg_idx();
+                let reg_idx = add_reg_idx();
+                if let Ok(d) = c_string.parse::<i32>(){
+                    if let Ok(e) = a_string.parse::<i32>(){
+                        format!("\t%{} = {} {}, {}\n", reg_idx, operation,e, d)
+                    } else {
+                        a_string + &format!("\t%{} = {} %{}, {}\n", reg_idx,operation, a_reg_idx, d)
+                    }
+                } else {
+                    if let Ok(e) = a_string.parse::<i32>(){
+                        c_string + &format!("\t%{} = {} {}, %{}\n", reg_idx,operation, e, c_reg_idx)
+                    } else {
+                        a_string + &c_string + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
+                                                        a_reg_idx, c_reg_idx)
+                    }
+                }
+            } else {
+                "ParserError".to_string()
+            }
+        }
+    }
 }

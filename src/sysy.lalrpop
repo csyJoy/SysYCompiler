@@ -1,5 +1,5 @@
 // lalrpop 里的约定
-use crate::ast::{CompUnit, FuncDef, FuncType, Block, Stmt, Exp, UnaryExp, PrimaryExp, UnaryOp, UnaryOperator, StmtType};
+use crate::ast::*;
 
 grammar;
 
@@ -29,7 +29,30 @@ Block: Block = "{" <stmt: Stmt> "}" => Block { <> };
 
 Stmt: Stmt = "return" <exp: Exp> ";" => Stmt { stmt_type: StmtType::Return(<>) };
 
-Exp: Exp = <exp: UnaryExp> => Exp { exp: Some(Box::new(exp)) };
+Exp: Exp = <exp: AddExp> => Exp { exp: Some(Box::new(exp)) };
+
+<<<<<<< Updated upstream
+=======
+Exp: Exp = <exp: AddExp> => Exp { exp: Some(Box::new(exp)) };
+
+>>>>>>> Stashed changes
+MulExp: MulExp = {
+    <unary_exp: UnaryExp> => MulExp{ unary_exp: Some(Box::new(<>)), mul_operate: None},
+    <mul_exp: MulExp> "*" <unary_exp: UnaryExp> => MulExp{unary_exp: None, mul_operate: Some((Box::new(mul_exp),
+    MulOperator::Times, Box::new(unary_exp)))},
+    <mul_exp: MulExp> "/" <unary_exp: UnaryExp> =>MulExp{unary_exp: None, mul_operate: Some((Box::new(mul_exp),
+                                                      MulOperator::Divide, Box::new(unary_exp)))},
+    <mul_exp: MulExp> "%" <unary_exp: UnaryExp> =>MulExp{unary_exp: None, mul_operate: Some((Box::new(mul_exp),
+                                                      MulOperator::Quote, Box::new(unary_exp)))},
+}
+
+AddExp: AddExp = {
+    <mul_exp: MulExp> => AddExp{mul_exp: Some(Box::new(<>)), add_operate: None},
+    <add_exp: AddExp> "+" <mul_exp: MulExp> => AddExp{mul_exp: None, add_operate: Some((Box::new(add_exp),
+    AddOperator::Add, Box::new(mul_exp)))},
+    <add_exp: AddExp> "-" <mul_exp: MulExp> => AddExp{mul_exp: None, add_operate: Some((Box::new(add_exp),
+    AddOperator::Sub, Box::new(mul_exp)))},
+}
 
 UnaryExp: UnaryExp = {
     <primary_exp: PrimaryExp> => UnaryExp{ primary_exp: Some(Box::new(primary_exp)), unary_exp: None },
