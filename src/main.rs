@@ -6,6 +6,7 @@ mod ast;
 mod codeGenerator;
 
 use crate::ast::GetKoopa;
+use crate::codeGenerator::code_generator::GenerateAsm;
 // 引用 lalrpop 生成的解析器
 // 因为我们刚刚创建了 sysy.lalrpop, 所以模块名是 sysy
 lalrpop_mod!(sysy);
@@ -28,6 +29,10 @@ fn main() -> Result<()> {
     // 输出解析得到的 AST
     // println!("{:#?}", ast);
     let ir = ast.get_koopa();
+    // println!("{}", ir);
+    let driver = koopa::front::Driver::from(ir);
+    let program = driver.generate_program().unwrap();
+    let ir = program.generate();
     println!("{}", ir);
     Ok(())
 }

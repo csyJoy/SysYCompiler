@@ -84,7 +84,7 @@ impl GetKoopa for Stmt{
                 if let Ok(c) = exp_string.parse::<i32>(){
                     format!("\tret {}\n", c)
                 } else {
-                    exp_string + &format!("\treg %{}\n", exp_reg_idx)
+                    exp_string + &format!("\tret %{}\n", exp_reg_idx)
                 }
             }
             _ => "ParserError".to_string()
