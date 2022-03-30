@@ -29,7 +29,7 @@ Block: Block = "{" <stmt: Stmt> "}" => Block { <> };
 
 Stmt: Stmt = "return" <exp: Exp> ";" => Stmt { stmt_type: StmtType::Return(<>) };
 
-Exp: Exp = <exp: AddExp> => Exp { exp: Some(Box::new(exp)) };
+Exp: Exp = <exp: LOrExp> => Exp { exp: Some(Box::new(exp)) };
 
 
 MulExp: MulExp = {
@@ -48,6 +48,35 @@ AddExp: AddExp = {
     AddOperator::Add, Box::new(mul_exp)))},
     <add_exp: AddExp> "-" <mul_exp: MulExp> => AddExp{mul_exp: None, add_operate: Some((Box::new(add_exp),
     AddOperator::Sub, Box::new(mul_exp)))},
+}
+RelExp: RelExp = {
+    <add_exp: AddExp> => RelExp{ add_exp: Some(Box::new(add_exp)), rel_operate: None},
+    <rel_exp: RelExp> "<" <add_exp: AddExp> => RelExp{ add_exp: None, rel_operate: Some((Box::new(rel_exp),
+    RelOperation::Less, Box::new(add_exp)))},
+    <rel_exp: RelExp> ">" <add_exp: AddExp> => RelExp{ add_exp: None, rel_operate: Some((Box::new(rel_exp),
+    RelOperation::Greater, Box::new(add_exp)))},
+    <rel_exp: RelExp> "<=" <add_exp: AddExp> => RelExp{ add_exp: None, rel_operate: Some((Box::new(rel_exp),
+    RelOperation::LessEq, Box::new(add_exp)))},
+    <rel_exp: RelExp> ">=" <add_exp: AddExp> => RelExp{ add_exp: None, rel_operate: Some((Box::new(rel_exp),
+    RelOperation::Greater, Box::new(add_exp)))},
+}
+
+EqExp: EqExp = {
+    <rel_exp: RelExp> => EqExp{ rel_exp: Some(Box::new(rel_exp)), eq_operate: None},
+    <eq_exp: EqExp> "==" <rel_exp: RelExp> => EqExp{ rel_exp: None, eq_operate: Some((Box::new(eq_exp),
+    EqOperation::Eq, Box::new(rel_exp)))},
+    <eq_exp: EqExp> "!=" <rel_exp: RelExp> => EqExp{ rel_exp: None, eq_operate: Some((Box::new(eq_exp),
+    EqOperation::NEq, Box::new(rel_exp)))},
+}
+LAndExp: LAndExp = {
+    <eq_exp: EqExp> => LAndExp{ eq_exp: Some(Box::new(eq_exp)), land_operate: None},
+    <land_exp: LAndExp> "&&" <eq_exp: EqExp> => LAndExp{ eq_exp: None, land_operate: Some((Box::new(land_exp),
+    Box::new(eq_exp)))},
+}
+LOrExp: LOrExp = {
+    <land_exp: LAndExp> => LOrExp{ land_exp: Some(Box::new(land_exp)), lor_operate: None},
+    <lor_exp: LOrExp> "||" <land_exp: LAndExp> => LOrExp{ land_exp: None, lor_operate: Some((Box::new(lor_exp),
+    Box::new(land_exp)))}
 }
 
 UnaryExp: UnaryExp = {

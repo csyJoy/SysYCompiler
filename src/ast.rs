@@ -94,7 +94,7 @@ impl GetKoopa for Stmt{
 
 #[derive(Debug)]
 pub struct Exp{
-    pub exp: Option<Box<AddExp>>
+    pub exp: Option<Box<LOrExp>>
 }
 impl GetKoopa for Exp{
     fn get_koopa(&self) -> String {
@@ -271,6 +271,187 @@ impl GetKoopa for AddExp{
                     AddOperator::Sub => operation = "sub".to_string(),
                     _ => operation = "".to_string(),
                 }
+                let a_string = a.get_koopa();
+                let a_reg_idx = get_reg_idx();
+                let c_string = c.get_koopa();
+                let c_reg_idx = get_reg_idx();
+                let reg_idx = add_reg_idx();
+                if let Ok(d) = c_string.parse::<i32>(){
+                    if let Ok(e) = a_string.parse::<i32>(){
+                        format!("\t%{} = {} {}, {}\n", reg_idx, operation,e, d)
+                    } else {
+                        a_string + &format!("\t%{} = {} %{}, {}\n", reg_idx,operation, a_reg_idx, d)
+                    }
+                } else {
+                    if let Ok(e) = a_string.parse::<i32>(){
+                        c_string + &format!("\t%{} = {} {}, %{}\n", reg_idx,operation, e, c_reg_idx)
+                    } else {
+                        a_string + &c_string + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
+                                                        a_reg_idx, c_reg_idx)
+                    }
+                }
+            } else {
+                "ParserError".to_string()
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum RelOperation{
+    Less,
+    Greater,
+    LessEq,
+    GreaterEq
+}
+
+#[derive(Debug)]
+pub struct RelExp{
+    pub add_exp: Option<Box<AddExp>>,
+    pub rel_operate: Option<(Box<RelExp>, RelOperation, Box<AddExp>)>
+}
+
+impl GetKoopa for RelExp {
+    fn get_koopa(&self) -> String {
+        if let Some(a) = &self.add_exp{
+            a.get_koopa()
+        } else {
+            if let Some((a, b ,c)) = &self.rel_operate{
+                let mut operation = "".to_string();
+                match b{
+                    RelOperation::Less => operation = "lt".to_string(),
+                    RelOperation::LessEq => operation = "le".to_string(),
+                    RelOperation::Greater => operation = "gt".to_string(),
+                    RelOperation::GreaterEq => operation = "ge".to_string(),
+                    _ => operation = "".to_string(),
+                }
+                let a_string = a.get_koopa();
+                let a_reg_idx = get_reg_idx();
+                let c_string = c.get_koopa();
+                let c_reg_idx = get_reg_idx();
+                let reg_idx = add_reg_idx();
+                if let Ok(d) = c_string.parse::<i32>(){
+                    if let Ok(e) = a_string.parse::<i32>(){
+                        format!("\t%{} = {} {}, {}\n", reg_idx, operation,e, d)
+                    } else {
+                        a_string + &format!("\t%{} = {} %{}, {}\n", reg_idx,operation, a_reg_idx, d)
+                    }
+                } else {
+                    if let Ok(e) = a_string.parse::<i32>(){
+                        c_string + &format!("\t%{} = {} {}, %{}\n", reg_idx,operation, e, c_reg_idx)
+                    } else {
+                        a_string + &c_string + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
+                                                        a_reg_idx, c_reg_idx)
+                    }
+                }
+            } else {
+                "ParserError".to_string()
+            }
+        }
+    } 
+}
+
+#[derive(Debug)]
+pub enum EqOperation{
+    Eq,
+    NEq
+}
+
+#[derive(Debug)]
+pub struct EqExp{
+    pub rel_exp: Option<Box<RelExp>>,
+    pub eq_operate: Option<(Box<EqExp>, EqOperation, Box<RelExp>)>
+}
+
+impl GetKoopa for EqExp {
+    fn get_koopa(&self) -> String {
+        if let Some(a) = &self.rel_exp{
+            a.get_koopa()
+        } else {
+            if let Some((a, b ,c)) = &self.eq_operate{
+                let mut operation = "".to_string();
+                match b{
+                    EqOperation::Eq => operation = "eq".to_string(),
+                    EqOperation::NEq => operation = "ne".to_string(),
+                    _ => operation = "".to_string(),
+                }
+                let a_string = a.get_koopa();
+                let a_reg_idx = get_reg_idx();
+                let c_string = c.get_koopa();
+                let c_reg_idx = get_reg_idx();
+                let reg_idx = add_reg_idx();
+                if let Ok(d) = c_string.parse::<i32>(){
+                    if let Ok(e) = a_string.parse::<i32>(){
+                        format!("\t%{} = {} {}, {}\n", reg_idx, operation,e, d)
+                    } else {
+                        a_string + &format!("\t%{} = {} %{}, {}\n", reg_idx,operation, a_reg_idx, d)
+                    }
+                } else {
+                    if let Ok(e) = a_string.parse::<i32>(){
+                        c_string + &format!("\t%{} = {} {}, %{}\n", reg_idx,operation, e, c_reg_idx)
+                    } else {
+                        a_string + &c_string + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
+                                                        a_reg_idx, c_reg_idx)
+                    }
+                }
+            } else {
+                "ParserError".to_string()
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct LAndExp{
+    pub eq_exp: Option<Box<EqExp>>,
+    pub land_operate:  Option<(Box<LAndExp>, Box<EqExp>)>
+}
+impl GetKoopa for LAndExp{
+    fn get_koopa(&self) -> String {
+        if let Some(a) = &self.eq_exp{
+            a.get_koopa()
+        } else {
+            if let Some((a, c )) = &self.land_operate{
+                let mut operation = "or".to_string();
+                let a_string = a.get_koopa();
+                let a_reg_idx = get_reg_idx();
+                let c_string = c.get_koopa();
+                let c_reg_idx = get_reg_idx();
+                let reg_idx = add_reg_idx();
+                if let Ok(d) = c_string.parse::<i32>(){
+                    if let Ok(e) = a_string.parse::<i32>(){
+                        format!("\t%{} = {} {}, {}\n", reg_idx, operation,e, d)
+                    } else {
+                        a_string + &format!("\t%{} = {} %{}, {}\n", reg_idx,operation, a_reg_idx, d)
+                    }
+                } else {
+                    if let Ok(e) = a_string.parse::<i32>(){
+                        c_string + &format!("\t%{} = {} {}, %{}\n", reg_idx,operation, e, c_reg_idx)
+                    } else {
+                        a_string + &c_string + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
+                                                        a_reg_idx, c_reg_idx)
+                    }
+                }
+            } else {
+                "ParserError".to_string()
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct LOrExp{
+    pub land_exp: Option<Box<LAndExp>>,
+    pub lor_operate: Option<(Box<LOrExp>, Box<LAndExp>)>
+}
+
+impl GetKoopa for LOrExp{
+    fn get_koopa(&self) -> String {
+        if let Some(a) = &self.land_exp{
+            a.get_koopa()
+        } else {
+            if let Some((a, c )) = &self.lor_operate{
+                let mut operation = "and".to_string();
                 let a_string = a.get_koopa();
                 let a_reg_idx = get_reg_idx();
                 let c_string = c.get_koopa();

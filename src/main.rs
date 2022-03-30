@@ -1,7 +1,8 @@
 use lalrpop_util::lalrpop_mod;
 use std::env::args;
 use std::fs::read_to_string;
-use std::io::Result;
+use std::io::{Result, Write};
+use std::fs::File;
 mod ast;
 mod codeGenerator;
 
@@ -19,6 +20,7 @@ fn main() -> Result<()> {
     let input = args.next().unwrap();
     args.next();
     let output = args.next().unwrap();
+    let mut file = File::create(output).unwrap();
 
     // 读取输入文件
     let input = read_to_string(input)?;
@@ -28,11 +30,19 @@ fn main() -> Result<()> {
 
     // 输出解析得到的 AST
     // println!("{:#?}", ast);
-    let ir = ast.get_koopa();
     // println!("{}", ir);
-    let driver = koopa::front::Driver::from(ir);
-    let program = driver.generate_program().unwrap();
-    let ir = program.generate();
-    println!("{}", ir);
+    if mode == "-koopa"{
+        let ir = ast.get_koopa();
+        println!("{}", ir);
+        file.write(ir.as_bytes());
+    } else if mode == "-riscv"{
+        let ir = ast.get_koopa();
+        let driver = koopa::front::Driver::from(ir);
+        let program = driver.generate_program().unwrap();
+        let ir = program.generate();
+        println!("{}", ir);
+        file.write(ir.as_bytes());
+    }
+
     Ok(())
 }

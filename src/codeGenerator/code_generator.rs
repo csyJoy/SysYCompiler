@@ -29,8 +29,12 @@ impl GlobalRegAlloctor{
 }
 impl RegAlloctor for GlobalRegAlloctor{
     fn free_reg(&mut self, idx: i32) -> Option<i32>{
-        self.reg_pool.push(idx);
-        Some(idx)
+        if(idx == 0) {
+            None
+        } else {
+            self.reg_pool.push(idx);
+            Some(idx)
+        }
     }
     fn alloc_reg(&mut self) -> Option<i32> {
         if !self.reg_pool.is_empty(){
@@ -128,27 +132,106 @@ impl splitGen for FunctionData {
         let mut bin_operation = "".to_string();
         let g = global_reg_allocator.lock().unwrap();
         let mut r = g.borrow_mut();
-        match op{
-            BinaryOp::Add => bin_operation = "add".to_string(),
-            BinaryOp::Sub => bin_operation = "sub".to_string(),
-            BinaryOp::Mul => bin_operation = "mul".to_string(),
-            BinaryOp::Div => bin_operation = "div".to_string(),
-            BinaryOp::Mod => bin_operation = "mod".to_string(),
-            BinaryOp::Eq => bin_operation = "eq".to_string(),
-            _ => bin_operation = "".to_string()
-        }
+        let idx = r.alloc_reg().unwrap();
+        r.bound_reg(value, idx);
+        let mut tmp_r:i32 = 0;
+        let mut tmp_l:i32 = 0;
         if let ValueKind::Integer(i) = self.dfg().value(r_value).kind(){
-            r_s = format!("{}", i.value());
+            if(i.value() == 0) {
+                r_s = format!("x0");
+            } else {
+                tmp_r = r.alloc_reg().unwrap();
+                *s += &format!("\tli t{}, {}\n", tmp_r,i.value());
+                r_s = format!("t{}", tmp_r);
+            }
         } else {
             r_s = format!("t{}", r.get_reg(r_value).unwrap());
         }
         if let ValueKind::Integer(i) = self.dfg().value(l_value).kind(){
-            l_s = format!("{}", i.value());
+            if(i.value() == 0){
+                l_s = format!("x0");
+            } else {
+                tmp_l = r.alloc_reg().unwrap();
+                *s += &format!("\tli t{}, {}\n", tmp_l, i.value());
+                l_s = format!("t{}", tmp_l);
+            }
         } else {
             l_s = format!("t{}", r.get_reg(l_value).unwrap());
         }
-        let idx = r.alloc_reg().unwrap();
-        r.bound_reg(value, idx);
-        *s += &format!("\tt{} = {} {}, {}\n", idx, bin_operation, l_s, r_s);
+        match op{
+            BinaryOp::Add => {
+                bin_operation = "add".to_string();
+                *s += &format!("\t{} t{}, {}, {}\n", bin_operation, idx, l_s, r_s);
+            },
+            BinaryOp::Sub => {
+                bin_operation = "sub".to_string();
+                *s += &format!("\t{} t{}, {}, {}\n", bin_operation, idx, l_s, r_s);
+            },
+            BinaryOp::Mul => {
+                bin_operation = "mul".to_string();
+                *s += &format!("\t{} t{}, {}, {}\n", bin_operation, idx, l_s, r_s);
+            },
+            BinaryOp::Div => {
+                bin_operation = "div".to_string();
+                *s += &format!("\t{} t{}, {}, {}\n", bin_operation, idx, l_s, r_s);
+            },
+            BinaryOp::Mod => {
+                bin_operation = "rem".to_string();
+                *s += &format!("\t{} t{}, {}, {}\n", bin_operation, idx, l_s, r_s);
+            },
+            BinaryOp::Eq => {
+                let tmp = r.alloc_reg().unwrap();
+                *s += &format!("\txor t{}, {}, {}\n", tmp, tmp_l, tmp_r);
+                *s += &format!("\tseqz t{}, {}\n", idx, tmp);
+                r.free_reg(tmp);
+            },
+            BinaryOp::And => {
+                bin_operation = "and".to_string();
+                *s += &format!("\t{} t{}, {}, {}\n", bin_operation, idx, l_s, r_s);
+            },
+            BinaryOp::Or => {
+                bin_operation = "or".to_string();
+                *s += &format!("\t{} t{}, {}, {}\n", bin_operation, idx, l_s, r_s);
+            },
+            BinaryOp::NotEq => {
+                let tmp = r.alloc_reg().unwrap();
+                *s += &format!("\txor t{}, {}, {}\n", tmp, tmp_l, tmp_r);
+                *s += &format!("\tsnez t{}, {}\n", idx, tmp);
+                r.free_reg(tmp);
+            },
+            BinaryOp::Le => {
+                bin_operation = "slt".to_string();
+                *s += &format!("\t{} t{}, {}, {}\n", bin_operation, idx, l_s, r_s);
+            },
+            BinaryOp::Lt => {
+                bin_operation = "slt".to_string();
+                let tmp = r.alloc_reg().unwrap();
+                let tmp1 = r.alloc_reg().unwrap();
+                *s += &format!("\txor t{}, {}, {}\n", tmp, tmp_l, tmp_r);
+                *s += &format!("\tseqz t{}, {}\n", idx, tmp);
+                *s += &format!("\t{} t{}, {}, {}\n", bin_operation, tmp1, l_s, r_s);
+                *s += &format!("\tor t{}, t{}, t{}\n", idx, tmp, tmp1);
+                r.free_reg(tmp);
+                r.free_reg(tmp1);
+            },
+            BinaryOp::Gt => {
+                bin_operation = "slt".to_string();
+                *s += &format!("\t{} t{}, {}, {}\n", bin_operation, idx, r_s, l_s);
+            },
+            BinaryOp::Ge =>{
+                bin_operation = "slt".to_string();
+                let tmp = r.alloc_reg().unwrap();
+                let tmp1 = r.alloc_reg().unwrap();
+                *s += &format!("\txor t{}, {}, {}\n", tmp, tmp_l, tmp_r);
+                *s += &format!("\tseqz t{}, {}\n", idx, tmp);
+                *s += &format!("\t{} t{}, {}, {}\n", bin_operation, tmp1, r_s, l_s);
+                *s += &format!("\tor t{}, t{}, t{}\n", idx, tmp, tmp1);
+                r.free_reg(tmp);
+                r.free_reg(tmp1);
+            }
+            _ => bin_operation = "".to_string()
+        }
+        r.free_reg(tmp_l);
+        r.free_reg(tmp_r);
     }
 }
