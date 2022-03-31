@@ -26,6 +26,6 @@ jobs:
         run: cd /root
           #      - name: run autotest
           #        run: autotest -koopa -s lv1 /root/SysYCompiler
-      - name: cargo new
-        run: cargo new --bin test
+      - name: version of rustc
+        run: rustc --version
 
