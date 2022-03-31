@@ -12,9 +12,7 @@ jobs:
     steps:
       - name: checkout code
         uses: actions/checkout@v2
-        with:
-          path: /root
       - name: run autotest
-        run: autotest --koopa -s lv1 /root/SysYCompiler
+        run: autotest --koopa -s lv1 SysYCompiler
 
 
