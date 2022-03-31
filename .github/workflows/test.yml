@@ -11,6 +11,7 @@ jobs:
       image: maxxing/compiler-dev
     steps:
       - uses: actions/checkout@v2
+        with:
           path: /root
         name: run autotest
         run: autotest --koopa -s lv1 /root/SysYCompiler
