@@ -7,17 +7,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-  docker_container:
-    runs-on: ubuntu-latest
-    needs: test
     container: 
       image: maxxing/compiler-dev
-      volumes:
-        ../SysYcompiler:/root/compiler
     steps:
-      - name: run autotest
-        run: uutotest -koopa -s lv1 /root/compiler
+      - uses: actions/checkout@v2
+          path: /root
+        name: run autotest
+        run: autotest --koopa -s lv1 /root/SysYCompiler
 
 
