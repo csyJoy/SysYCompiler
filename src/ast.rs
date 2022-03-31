@@ -132,7 +132,7 @@ impl GetKoopa for UnaryExp{
                     UnaryOperator::Sub => {
                         let mut s = b.get_koopa();
                         if let Ok(c) = s.parse::<i32>(){
-                            let reg_idx = get_reg_idx();
+                            let reg_idx = add_reg_idx();
                             format!("\t%{} = sub 0, {}\n",reg_idx, c)
                         } else {
                             let reg_idx = add_reg_idx();
