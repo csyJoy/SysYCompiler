@@ -412,24 +412,34 @@ impl GetKoopa for LAndExp{
             a.get_koopa()
         } else {
             if let Some((a, c )) = &self.land_operate{
-                let mut operation = "or".to_string();
+                let mut operation = "and".to_string();
                 let a_string = a.get_koopa();
                 let a_reg_idx = get_reg_idx();
                 let c_string = c.get_koopa();
                 let c_reg_idx = get_reg_idx();
+                let e_reg = add_reg_idx();
+                let d_reg = add_reg_idx();
                 let reg_idx = add_reg_idx();
                 if let Ok(d) = c_string.parse::<i32>(){
                     if let Ok(e) = a_string.parse::<i32>(){
-                        format!("\t%{} = {} {}, {}\n", reg_idx, operation,e, d)
-                    } else {
-                        a_string + &format!("\t%{} = {} %{}, {}\n", reg_idx,operation, a_reg_idx, d)
+                        let s1 = format!("\t%{} = eq 0, {}\n",e_reg, e);
+                        let s2 = format!("\t%{} = eq 0, {}\n",d_reg, d);
+                        s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx, operation,e_reg, d_reg) }
+                    else {
+                        let s1 = format!("\t%{} = eq 0, %{}\n",e_reg, a_reg_idx);
+                        let s2 = format!("\t%{} = eq 0, {}\n",d_reg, d);
+                        a_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
                     }
                 } else {
                     if let Ok(e) = a_string.parse::<i32>(){
-                        c_string + &format!("\t%{} = {} {}, %{}\n", reg_idx,operation, e, c_reg_idx)
+                        let s1 = format!("\t%{} = eq 0, {}\n",e_reg, e);
+                        let s2 = format!("\t%{} = eq 0, %{}\n",d_reg, c_reg_idx);
+                        c_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
                     } else {
-                        a_string + &c_string + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
-                                                        a_reg_idx, c_reg_idx)
+                        let s1 = format!("\t%{} = eq 0, %{}\n",e_reg, a_reg_idx);
+                        let s2 = format!("\t%{} = eq 0, %{}\n",d_reg, c_reg_idx);
+                        a_string + &c_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
+                                                        e_reg, d_reg)
                     }
                 }
             } else {
@@ -451,24 +461,34 @@ impl GetKoopa for LOrExp{
             a.get_koopa()
         } else {
             if let Some((a, c )) = &self.lor_operate{
-                let mut operation = "and".to_string();
+                let mut operation = "or".to_string();
                 let a_string = a.get_koopa();
                 let a_reg_idx = get_reg_idx();
                 let c_string = c.get_koopa();
                 let c_reg_idx = get_reg_idx();
+                let e_reg = add_reg_idx();
+                let d_reg = add_reg_idx();
                 let reg_idx = add_reg_idx();
                 if let Ok(d) = c_string.parse::<i32>(){
                     if let Ok(e) = a_string.parse::<i32>(){
-                        format!("\t%{} = {} {}, {}\n", reg_idx, operation,e, d)
+                        let s1 = format!("\t%{} = eq 0, {}\n",e_reg, e);
+                        let s2 = format!("\t%{} = eq 0, {}\n",d_reg, d);
+                        s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx, operation,e_reg, d_reg)
                     } else {
-                        a_string + &format!("\t%{} = {} %{}, {}\n", reg_idx,operation, a_reg_idx, d)
+                        let s1 = format!("\t%{} = eq 0, %{}\n",e_reg, a_reg_idx);
+                        let s2 = format!("\t%{} = eq 0, {}\n",d_reg, d);
+                        a_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
                     }
                 } else {
                     if let Ok(e) = a_string.parse::<i32>(){
-                        c_string + &format!("\t%{} = {} {}, %{}\n", reg_idx,operation, e, c_reg_idx)
+                        let s1 = format!("\t%{} = eq 0, {}\n",e_reg, e);
+                        let s2 = format!("\t%{} = eq 0, %{}\n",d_reg, c_reg_idx);
+                        c_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
                     } else {
-                        a_string + &c_string + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
-                                                        a_reg_idx, c_reg_idx)
+                        let s1 = format!("\t%{} = eq 0, %{}\n",e_reg, a_reg_idx);
+                        let s2 = format!("\t%{} = eq 0, %{}\n",d_reg, c_reg_idx);
+                        a_string + &c_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
+                                                                    e_reg, d_reg)
                     }
                 }
             } else {

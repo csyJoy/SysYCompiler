@@ -1,3 +1,5 @@
+extern crate koopa;
+
 use lalrpop_util::lalrpop_mod;
 use std::env::args;
 use std::fs::read_to_string;
@@ -33,14 +35,12 @@ fn main() -> Result<()> {
     // println!("{}", ir);
     if mode == "-koopa"{
         let ir = ast.get_koopa();
-        println!("{}", ir);
         file.write(ir.as_bytes());
     } else if mode == "-riscv"{
         let ir = ast.get_koopa();
         let driver = koopa::front::Driver::from(ir);
         let program = driver.generate_program().unwrap();
         let ir = program.generate();
-        println!("{}", ir);
         file.write(ir.as_bytes());
     }
 

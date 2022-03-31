@@ -1,9 +1,10 @@
-use koopa::ir::{BinaryOp, FunctionData, Program, Value, ValueKind};
-use koopa::ir::values::{Binary, Return};
+//use koopa::ir::{BinaryOp, FunctionData, Program, Value, ValueKind};
+use koopa::ir::values::{Binary, Return, BinaryOp};
 use lazy_static::lazy_static;
 use std::sync::Mutex;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use koopa::ir::entities::{Value, Program, FunctionData, ValueKind};
 
 pub trait GenerateAsm{
     fn generate(&self) -> String;

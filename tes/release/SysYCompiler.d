@@ -1,0 +1,1 @@
+/root/compiler/tes/release/SysYCompiler: /root/compiler/build.rs /root/compiler/src/ast.rs /root/compiler/src/codeGenerator/code_generator.rs /root/compiler/src/codeGenerator/mod.rs /root/compiler/src/main.rs /root/compiler/tes/release/build/SysYCompiler-cf379aba1ba1867f/out/sysy.rs
