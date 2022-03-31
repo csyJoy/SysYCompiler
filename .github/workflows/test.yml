@@ -21,7 +21,7 @@ jobs:
       - name: change the env
         run: |
           unset -v RUSTUP_UPDATE_ROOT
-          unset -v DIST_SERVER
+          unset -v RUSTUP_DIST_SERVER
           rustup install stable
           rustup update stable
           cargo new --bin test
