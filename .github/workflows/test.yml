@@ -20,12 +20,12 @@ jobs:
         run: mv ./config /root/.cargo
       - name: cp to root
         run: cp -r ../SysYCompiler /root
-      - name: change dir
-        run: 
-          cd /root
-          pwd 
-          rustup install stable
-          #      - name: run autotest
-          #        run: autotest -koopa -s lv1 /root/SysYCompiler
-          rustc --version
+          #      - name: change dir
+          #        run: 
+          #          cd /root
+          #          pwd 
+          #          rustup install stable
+          #          #      - name: run autotest
+          #          #        run: autotest -koopa -s lv1 /root/SysYCompiler
+          #          rustc --version
 
