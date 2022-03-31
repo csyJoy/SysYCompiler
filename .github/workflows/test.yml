@@ -20,6 +20,10 @@ jobs:
         run: mv ./config /root/.cargo
       - name: cp to root
         run: cp -r ../SysYCompiler /root
+      - name: change the env
+        run: |
+          unset -v RUSTUP_UPDATE_ROOT
+          unset -v DIST_SERVER
       - name: cargo new
         run: |
           /root/.cargo/bin/cargo new --bin test
