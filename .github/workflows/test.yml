@@ -15,7 +15,7 @@ jobs:
     container: 
       image: maxxing/compiler-dev
       volumes:
-        SysYcompiler:/root/compiler
+        ../SysYcompiler:/root/compiler
     steps:
       - name: run autotest
         run: uutotest -koopa -s lv1 /root/compiler
