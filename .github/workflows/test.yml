@@ -22,13 +22,9 @@ jobs:
         run: |
           unset -v RUSTUP_UPDATE_ROOT
           unset -v DIST_SERVER
-      - name: set default toochains
-        run: |
           rustup install stable
           rustup update stable
-      - name: cargo new
-        run: |
-          /root/.cargo/bin/cargo new --bin test
+          cargo new --bin test
           #          rustup install stable
           #          #      - name: run autotest
           #          #        run: autotest -koopa -s lv1 /root/SysYCompiler
