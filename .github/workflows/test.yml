@@ -16,14 +16,17 @@ jobs:
           #        run: rustup default stable
           # - name: remove the tuna source
           #run: rm /root/.cargo/config
-          #      - name: move config to .cargo
-          #        run: mv ./config /root/.cargo
-          #      - name: rust toolchains
-          #        run: rustup install stable
+      - name: move config to .cargo
+        run: mv ./config /root/.cargo
       - name: cp to root
         run: cp -r ../SysYCompiler /root
       - name: change dir
         run: cd /root
+      - name: pwd 
+        run: pwd
+      - name: rust toolchains
+        run: rustup install stable
+
           #      - name: run autotest
           #        run: autotest -koopa -s lv1 /root/SysYCompiler
       - name: version of rustc
