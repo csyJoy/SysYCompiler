@@ -12,21 +12,38 @@ jobs:
     steps:
       - name: checkout code
         uses: actions/checkout@v2
+          #      - name: set default toochains
+          #        run: rustup default stable
           # - name: remove the tuna source
           #run: rm /root/.cargo/config
-      - name: move config to .cargo
-        run: mv ./config /root/.cargo
+          #      - name: move config to .cargo
+          #        run: mv ./config /root/.cargo
+          #      - name: rust toolchains
+          #        run: rustup install stable
       - name: cp to root
         run: cp -r ../SysYCompiler /root
-      - name: change the env
-        run: |
-          unset -v RUSTUP_UPDATE_ROOT
-          unset -v RUSTUP_DIST_SERVER
-          rustup install stable
-          rustup update stable
-          cargo new --bin test
-          #          rustup install stable
-          #          #      - name: run autotest
-          #          #        run: autotest -koopa -s lv1 /root/SysYCompiler
-          #          rustc --version
+      - name: remove the tuna source
+        run: rm /root/.cargo/config
+      - name: cp new home
+        run: cp -r /root/. $HOME 
+      - name: change dir
+        run: | 
+          . /root/.cargo/env
+          unset RUSTUP_UPDATE_ROOT
+          unset RUSTUP_DIST_SERVER
+          echo $GITHUB_ENV
+          echo $GITHUB_WORKSPACE
+          echo $HOME
+          ls -lha
+          ls -lha /root
+          ls -lha /root/SysYCompiler
+          ls -lha $HOME
+          pwd
+          echo $PATH
+          echo $PATH
+          cd /root
+          pwd
+          autotest -koopa -s lv1 /root/SysYCompiler
+
+
 
