@@ -12,8 +12,8 @@ jobs:
     steps:
       - name: checkout code
         uses: actions/checkout@v2
-      - name: set default toochains
-        run: rustup default stable
+          #      - name: set default toochains
+          #        run: rustup default stable
           # - name: remove the tuna source
           #run: rm /root/.cargo/config
           #      - name: move config to .cargo
@@ -22,7 +22,8 @@ jobs:
           #        run: rustup install stable
       - name: cp to root
         run: cp -r ../SysYCompiler /root
-      - name: run autotest
-        run: autotest -koopa -s lv1 /root/SysYCompiler
-
+          #      - name: run autotest
+          #        run: autotest -koopa -s lv1 /root/SysYCompiler
+      - name: cargo new
+        run: cargo new --bin test
 
