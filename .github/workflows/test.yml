@@ -12,12 +12,12 @@ jobs:
     steps:
       - name: checkout code
         uses: actions/checkout@v2
+      - name: rust toolchains
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
       - name: cp to root
         run: cp -r ../SysYCompiler /root
-      - name: ls 1
-        run: ls -ahl /root
-      - name: ls 2
-        run: ls -ahl /root/SysYCompiler
       - name: run autotest
         run: autotest -koopa -s lv1 /root/SysYCompiler
 
