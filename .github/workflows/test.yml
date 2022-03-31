@@ -1,0 +1,22 @@
+name: test
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+  docker_container:
+    needs: test
+    container: 
+      image: maxxing/compiler-dev
+      volumes:
+        SysYcompiler:/root/compiler
+    steps:
+      - name: run autotest
+        run: uutotest -koopa -s lv1 /root/compiler
+
+
