@@ -422,22 +422,22 @@ impl GetKoopa for LAndExp{
                 let reg_idx = add_reg_idx();
                 if let Ok(d) = c_string.parse::<i32>(){
                     if let Ok(e) = a_string.parse::<i32>(){
-                        let s1 = format!("\t%{} = eq 0, {}\n",e_reg, e);
-                        let s2 = format!("\t%{} = eq 0, {}\n",d_reg, d);
+                        let s1 = format!("\t%{} = ne 0, {}\n",e_reg, e);
+                        let s2 = format!("\t%{} = ne 0, {}\n",d_reg, d);
                         s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx, operation,e_reg, d_reg) }
                     else {
-                        let s1 = format!("\t%{} = eq 0, %{}\n",e_reg, a_reg_idx);
-                        let s2 = format!("\t%{} = eq 0, {}\n",d_reg, d);
+                        let s1 = format!("\t%{} = ne 0, %{}\n",e_reg, a_reg_idx);
+                        let s2 = format!("\t%{} = ne 0, {}\n",d_reg, d);
                         a_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
                     }
                 } else {
                     if let Ok(e) = a_string.parse::<i32>(){
-                        let s1 = format!("\t%{} = eq 0, {}\n",e_reg, e);
-                        let s2 = format!("\t%{} = eq 0, %{}\n",d_reg, c_reg_idx);
+                        let s1 = format!("\t%{} = ne 0, {}\n",e_reg, e);
+                        let s2 = format!("\t%{} = ne 0, %{}\n",d_reg, c_reg_idx);
                         c_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
                     } else {
-                        let s1 = format!("\t%{} = eq 0, %{}\n",e_reg, a_reg_idx);
-                        let s2 = format!("\t%{} = eq 0, %{}\n",d_reg, c_reg_idx);
+                        let s1 = format!("\t%{} = ne 0, %{}\n",e_reg, a_reg_idx);
+                        let s2 = format!("\t%{} = ne 0, %{}\n",d_reg, c_reg_idx);
                         a_string + &c_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
                                                         e_reg, d_reg)
                     }
@@ -471,22 +471,22 @@ impl GetKoopa for LOrExp{
                 let reg_idx = add_reg_idx();
                 if let Ok(d) = c_string.parse::<i32>(){
                     if let Ok(e) = a_string.parse::<i32>(){
-                        let s1 = format!("\t%{} = eq 0, {}\n",e_reg, e);
-                        let s2 = format!("\t%{} = eq 0, {}\n",d_reg, d);
+                        let s1 = format!("\t%{} = ne 0, {}\n",e_reg, e);
+                        let s2 = format!("\t%{} = ne 0, {}\n",d_reg, d);
                         s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx, operation,e_reg, d_reg)
                     } else {
-                        let s1 = format!("\t%{} = eq 0, %{}\n",e_reg, a_reg_idx);
-                        let s2 = format!("\t%{} = eq 0, {}\n",d_reg, d);
+                        let s1 = format!("\t%{} = ne 0, %{}\n",e_reg, a_reg_idx);
+                        let s2 = format!("\t%{} = ne 0, {}\n",d_reg, d);
                         a_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
                     }
                 } else {
                     if let Ok(e) = a_string.parse::<i32>(){
-                        let s1 = format!("\t%{} = eq 0, {}\n",e_reg, e);
-                        let s2 = format!("\t%{} = eq 0, %{}\n",d_reg, c_reg_idx);
+                        let s1 = format!("\t%{} = ne 0, {}\n",e_reg, e);
+                        let s2 = format!("\t%{} = ne 0, %{}\n",d_reg, c_reg_idx);
                         c_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
                     } else {
-                        let s1 = format!("\t%{} = eq 0, %{}\n",e_reg, a_reg_idx);
-                        let s2 = format!("\t%{} = eq 0, %{}\n",d_reg, c_reg_idx);
+                        let s1 = format!("\t%{} = ne 0, %{}\n",e_reg, a_reg_idx);
+                        let s2 = format!("\t%{} = ne 0, %{}\n",d_reg, c_reg_idx);
                         a_string + &c_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
                                                                     e_reg, d_reg)
                     }
