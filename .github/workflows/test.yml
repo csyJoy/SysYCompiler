@@ -13,7 +13,7 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v2
       - name: remove the tuna source
-        uses: rm /root/.cargo/config
+        run: rm /root/.cargo/config
       - name: rust toolchains
         run: rustup install stable
       - name: cp to root
