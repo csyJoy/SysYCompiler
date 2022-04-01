@@ -1,6 +1,6 @@
 // lalrpop 里的约定
-use crate::ast::*;
-
+use crate::frontEnd::ast::*;
+use crate::frontEnd::parser::GLOBAL_SYMBOL_TABLE_ALLOCATOR;
 grammar;
 
 // 约束 lexer 的行为
@@ -26,9 +26,16 @@ FuncDef: FuncDef = {
 
 FuncType: FuncType = "int" => FuncType::Int;
 
-Block: Block = "{" <stmt: Stmt> "}" => Block { <> };
+Block: Block = "{" <block_item: (BlockItem)*> "}" => Block { <> };
+BlockItem: BlockItem = {
+    <decl: Decl> => BlockItem{decl: Some(decl), stmt: None},
+    <stmt: Stmt> => BlockItem{decl: None, stmt: Some(stmt)}
+}
 
-Stmt: Stmt = "return" <exp: Exp> ";" => Stmt { stmt_type: StmtType::Return(<>) };
+Stmt: Stmt = {
+    "return" <exp: Exp> ";" => Stmt { stmt_type: StmtType::Return(<>) },
+    <lval: Lval> "=" <exp: Exp> ";" => Stmt{stmt_type: StmtType::Assign((<>))},
+}
 
 Exp: Exp = <exp: LOrExp> => Exp { exp: Some(Box::new(exp)) };
 
@@ -85,9 +92,13 @@ UnaryExp: UnaryExp = {
     <unary_op: UnaryOp> <unary_exp: UnaryExp> => UnaryExp{primary_exp: None, unary_exp: Some((unary_op, Box::new
     (unary_exp)))},
 }
+Lval: Lval = {
+    <ident: Ident> => Lval{<>}
+}
 PrimaryExp: PrimaryExp = {
-    "(" <exp: Exp> ")" => PrimaryExp{ exp: Some(Box::new(exp)), num: None},
-    <num: Number> => PrimaryExp{ exp: None, num: Some(num)},
+    "(" <exp: Exp> ")" => PrimaryExp{ exp: Some(Box::new(exp)), lval: None, num: None},
+    <lval: Lval> => PrimaryExp{ exp: None, lval: Some(lval), num:None},
+    <num: Number> => PrimaryExp{ exp: None, lval: None, num: Some(num)},
 }
 UnaryOp: UnaryOp = {
     "+" => UnaryOp{ unary_op: UnaryOperator::Add },
@@ -96,6 +107,48 @@ UnaryOp: UnaryOp = {
 }
 
 Number: i32 = <num: IntConst> => num;
+
+Decl: Decl = {
+    <const_decl:ConstDecl> => Decl{const_decl: Some(Box::new(const_decl)), var_decl: None},
+    <var_decl:VarDecl> => Decl{const_decl: None, var_decl: Some(Box::new(var_decl))}
+}
+ConstDecl: ConstDecl = {
+    "const" <b_type:BType> <const_def:ConstDef> <const_def_vec:("," <ConstDef>)*> ";" => {
+        if const_def_vec.is_empty(){
+            ConstDecl{b_type: b_type, const_def: const_def, const_def_vec: None}
+        } else {
+            ConstDecl{b_type: b_type, const_def: const_def, const_def_vec: Some(const_def_vec)}
+        }
+    },
+}
+BType: BType = {
+    "int" => BType::Int,
+}
+ConstDef: ConstDef = {
+    <ident: Ident> "=" <const_init_val:ConstInitVal> => {
+        ConstDef{<>}
+    }
+}
+ConstInitVal: ConstInitVal = {
+    <const_exp: ConstExp> => ConstInitVal{<>}
+}
+ConstExp: ConstExp = {
+    <exp: Exp> => ConstExp{<>}
+}
+
+VarDecl: VarDecl = {
+    <b_type: BType> <var_def: VarDef> <var_def_vec:("," <VarDef>)*> ";" => {
+        VarDecl{<>}
+    }
+}
+VarDef: VarDef = {
+    <ident: Ident> => VarDef{ident: ident, initval: None},
+    <ident: Ident> "=" <initval:InitVal> => VarDef{ident: ident, initval: Some(initval)}
+}
+InitVal: InitVal = {
+    <exp: Exp> => InitVal{ exp: exp }
+}
+
 
 // 如果匹配到标识符, 就返回这个字符串
 // 一对尖括号在此处指代的是正则表达式匹配到的字符串 (&str)
@@ -108,3 +161,8 @@ IntConst: i32 = {
   r"0[0-7]*" => i32::from_str_radix(<>, 8).unwrap(),
   r"0[xX][0-9a-fA-F]+" => i32::from_str_radix(&<>[2..], 16).unwrap(),
 }
+
+
+//VarDecl: VarDecl = {
+//    <b_type: BType> <var_def: VarDef>
+//}
