@@ -3,7 +3,8 @@ use crate::frontEnd::{ast, symbol_table};
 use crate::frontEnd::ast::{AddExp, AddOperator, Block, BlockItem, CompUnit, ConstDecl, ConstDef, ConstExp, ConstInitVal, Decl, EqExp, EqOperation, Exp, FuncDef, FuncType, InitVal, LAndExp, LOrExp, MulExp, MulOperator, PrimaryExp, RelExp, RelOperation, Stmt, StmtType, UnaryExp, UnaryOp, UnaryOperator, VarDecl, VarDef};
 use lazy_static::lazy_static;
 use std::cell::{Ref, RefCell};
-use std::ops::{Add, Mul};
+use std::mem;
+use std::ops::{Add, Deref, Mul};
 use std::sync::Mutex;
 use symbol_table::GlobalSymbolTableAllocator;
 use crate::frontEnd::symbol_table::Value;
@@ -593,12 +594,26 @@ impl GetKoopa for InitVal{
 
 impl GetKoopa for ConstDecl{
     fn get_koopa(&self) -> String {
+        //todo: 没有加vec的处理
         let a = self.const_def.eval_const().unwrap();
         let Value::Int(i) = a;
-        let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-        let mut g = m.borrow_mut().get_mut();
         let s = self.const_def.get_name();
-        g.now_symbol.as_mut().unwrap().lock().unwrap().insert_const_symbol(s, i);
+        {
+            let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+            let mut g = m.borrow_mut().get_mut();
+            let mut k = g.now_symbol.as_mut().unwrap().lock().unwrap();
+            k.insert_const_symbol(s, i);
+        }
+        if let Some(v) = &self.const_def_vec{
+            for q in v{
+                let a = q.eval_const().unwrap();
+                let Value::Int(i) = a;
+                let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                let mut g = m.borrow_mut().get_mut();
+                let mut k = g.now_symbol.as_mut().unwrap().lock().unwrap();
+                k.insert_const_symbol(q.get_name(), i);
+            }
+        }
         "".to_string()
     }
 }
