@@ -150,10 +150,10 @@ impl GetKoopa for Stmt{
             }
             StmtType::Assign((ident, exp)) => {
                 let s2 = exp.get_koopa();
-                let s3 = format!("\tstore %{}, @{}\n",get_reg_idx(&s2), ident.ident);
                 if let Ok(i) = s2.parse::<i32>(){
-                    s3
+                    format!("\tstore {}, @{}\n",i, ident.ident)
                 } else {
+                    let s3 = format!("\tstore %{}, @{}\n",get_reg_idx(&s2), ident.ident);
                     s2 + &s3
                 }
             }
@@ -301,7 +301,7 @@ impl GetKoopa for MulExp{
                 let a_string = a.get_koopa();
                 let a_reg_idx = get_reg_idx(&a_string);
                 let c_string = c.get_koopa();
-                let c_reg_idx = get_reg_idx(&a_string);
+                let c_reg_idx = get_reg_idx(&c_string);
                 let e = add_reg_idx();
                 test(a_string, c_string, a_reg_idx, c_reg_idx, e, operation)
             } else {
