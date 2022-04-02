@@ -572,7 +572,7 @@ impl GetKoopa for VarDef{
                     g.now_symbol.as_mut().unwrap().lock().unwrap().insert_var_symbol((&s).to_string(),
                                                                                      None);
                 }
-                format!("\t@{} = alloc {}\n",self.get_name(), "i32")
+                k + &format!("\t@{} = alloc {}\n",self.get_name(), "i32")
                     + &format!("\tstore %{}, @{}\n",get_reg_idx(&s), self.get_name())
             }
         } else {
