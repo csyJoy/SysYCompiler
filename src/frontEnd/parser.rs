@@ -785,9 +785,9 @@ impl EvalConst for UnaryExp{
                         match v{
                             Value::Int(i) => {
                                 if i == 0{
-                                    tmp = Some(Value::Int(0));
-                                } else {
                                     tmp = Some(Value::Int(1));
+                                } else {
+                                    tmp = Some(Value::Int(0));
                                 }
                             },
                             _ => tmp = None
@@ -827,11 +827,15 @@ impl EvalConst for PrimaryExp{
                     let i = s.get_const_value(&tmp.ident);
                     return Some(Value::Int(i))
                 } else {
-                    None
+                    return None
                 }
+            } else if let Some(tmp) = &self.exp{
+                return tmp.eval_const();
             } else {
-                None
+                return None
             }
         }
     }
 }
+
+
