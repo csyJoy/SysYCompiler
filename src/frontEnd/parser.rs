@@ -151,7 +151,11 @@ impl GetKoopa for Stmt{
             StmtType::Assign((ident, exp)) => {
                 let s2 = exp.get_koopa();
                 let s3 = format!("\tstore %{}, @{}\n",get_reg_idx(&s2), ident.ident);
-                s2 + &s3
+                if let Ok(i) = s2.parse::<i32>(){
+                    s3
+                } else {
+                    s2 + &s3
+                }
             }
             _ => "ParserError".to_string()
         }
@@ -187,9 +191,9 @@ impl GetKoopa for UnaryExp{
                             let reg_idx = add_reg_idx();
                             format!("\t%{} = add 0, {}\n",reg_idx, c)
                         } else {
+                            let reg_idxx = get_reg_idx(&s);
                             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                             let mut go = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
-                            let reg_idxx = get_reg_idx(&s);
                             if go.exist_var_symbol(&s){
                                 let reg_idx = add_reg_idx();
                                 format!("\t%{} = add 0, %{}\n",reg_idx, reg_idxx)
@@ -205,9 +209,9 @@ impl GetKoopa for UnaryExp{
                             let reg_idx = add_reg_idx();
                             format!("\t%{} = sub 0, {}\n",reg_idx, c)
                         } else {
+                            let reg_idxx = get_reg_idx(&s);
                             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                             let mut go = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
-                            let reg_idxx = get_reg_idx(&s);
                             if go.exist_var_symbol(&s){
                                 let reg_idx = add_reg_idx();
                                 s + &format!("\t%{} = sub 0, %{}\n", reg_idx, reg_idxx)
@@ -223,9 +227,9 @@ impl GetKoopa for UnaryExp{
                             let reg_idx = add_reg_idx();
                             format!("\t%{} = eq {}, 0\n",reg_idx, c)
                         } else {
+                            let reg_idxx = get_reg_idx(&s);
                             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                             let mut go = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
-                            let reg_idxx = get_reg_idx(&s);
                             if go.exist_var_symbol(&s){
                                 let reg_idx = add_reg_idx();
                                 format!("\t%{} = eq %{}, 0\n", reg_idx, reg_idxx)
@@ -552,22 +556,28 @@ impl GetKoopa for VarDecl{
 
 impl GetKoopa for VarDef{
     fn get_koopa(&self) -> String {
-        let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-        let mut g = m.borrow_mut().get_mut();
         let s = self.get_name();
         if let Some(i) = &self.initval{
             let mut k = i.get_koopa();
             if let Ok(l)= k.parse::<i32>(){
+                let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                let mut g = m.borrow_mut().get_mut();
                 g.now_symbol.as_mut().unwrap().lock().unwrap().insert_var_symbol(s, Some(l));
                 format!("\t@{} = alloc {}\n",self.get_name(), "i32")
                     + &format!("\tstore {}, @{}\n",l, self.get_name())
             } else {
-                g.now_symbol.as_mut().unwrap().lock().unwrap().insert_var_symbol((&s).to_string(),
-                                                                                  None);
-                (&s).to_string() + &format!("\t@{} = alloc {}\n",self.get_name(), "i32")
+                {
+                    let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                    let mut g = m.borrow_mut().get_mut();
+                    g.now_symbol.as_mut().unwrap().lock().unwrap().insert_var_symbol((&s).to_string(),
+                                                                                     None);
+                }
+                format!("\t@{} = alloc {}\n",self.get_name(), "i32")
                     + &format!("\tstore %{}, @{}\n",get_reg_idx(&s), self.get_name())
             }
         } else {
+            let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+            let mut g = m.borrow_mut().get_mut();
             g.now_symbol.as_mut().unwrap().lock().unwrap().insert_var_symbol(s, None);
             format!("\t@{} = alloc {}\n",self.get_name(), "i32")
         }
@@ -582,10 +592,12 @@ impl GetName for VarDef{
 
 impl GetKoopa for InitVal{
     fn get_koopa(&self) -> String {
-        let a = self.exp.eval_const().unwrap();
-        if let Value::Int(i) = a {
-
-            format!("{}", i)
+        if let Some(a) = self.exp.eval_const(){
+            if let Value::Int(i) = a {
+                format!("{}", i)
+            } else {
+                "".to_string()
+            }
         } else {
             self.exp.get_koopa()
         }
