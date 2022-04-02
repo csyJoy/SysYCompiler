@@ -2,7 +2,6 @@ name: test
 on:
   push:
     branches:
-      - master
       - dev
 
 jobs:
@@ -44,7 +43,7 @@ jobs:
           echo $PATH
           cd /root
           pwd
-          autotest -riscv -s lv3 /root/SysYCompiler
+          autotest -koopa -s lv4 /root/SysYCompiler
 
 
 
