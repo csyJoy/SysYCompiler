@@ -616,8 +616,8 @@ impl GetName for ConstDef{
 }
 impl EvalConst for LOrExp{
     fn eval_const(&self) -> Option<Value> {
-        if let a = self.land_exp.as_ref().unwrap().eval_const(){
-            a
+        if let Some(a) = self.land_exp.as_ref(){
+            a.eval_const()
         } else if let Some((lor, land)) = &self.lor_operate{
             let lor_val = lor.eval_const();
             if let Some(v1) = lor_val{
@@ -639,8 +639,8 @@ impl EvalConst for LOrExp{
 
 impl EvalConst for LAndExp{
     fn eval_const(&self) -> Option<Value> {
-        if let a = self.eq_exp.as_ref().unwrap().eval_const(){
-            a
+        if let Some(a) = self.eq_exp.as_ref(){
+            a.eval_const()
         } else if let Some((land, eq)) = &self.land_operate{
             let land_val = land.eval_const();
             if let Some(v1) = land_val{
@@ -662,8 +662,8 @@ impl EvalConst for LAndExp{
 
 impl EvalConst for EqExp{
     fn eval_const(&self) -> Option<Value> {
-        if let a = self.rel_exp.as_ref().unwrap().eval_const(){
-            a
+        if let Some(a) = self.rel_exp.as_ref(){
+            a.eval_const()
         } else if let Some((eq, op, rel)) = &self.eq_operate{
             let eq_val = eq.eval_const();
             if let Some(v1) = eq_val{
@@ -689,8 +689,8 @@ impl EvalConst for EqExp{
 
 impl EvalConst for RelExp{
     fn eval_const(&self) -> Option<Value> {
-        if let a = self.add_exp.as_ref().unwrap().eval_const(){
-            a
+        if let Some(a) = self.add_exp.as_ref(){
+            a.eval_const()
         } else if let Some((rel, op, add)) = &self.rel_operate{
             let rel_val = rel.eval_const();
             if let Some(v1) = rel_val{
@@ -719,8 +719,8 @@ impl EvalConst for RelExp{
 
 impl EvalConst for AddExp{
     fn eval_const(&self) -> Option<Value> {
-        if let a = self.mul_exp.as_ref().unwrap().eval_const(){
-            a
+        if let Some(a) = self.mul_exp.as_ref(){
+            a.eval_const()
         } else if let Some((add_exp, op, mul_exp)) = &self.add_operate{
             let add_val = add_exp.eval_const();
             if let Some(v1) = add_val{
