@@ -56,7 +56,12 @@ impl SymbolTable{
         a.reg = Some(reg_idx);
     }
     pub fn get_var_reg(&self, name: &String) -> Option<i32>{
-        self.table.get(name).unwrap().reg
+        let a = self.table.get(name);
+        if let Some(b) =  a{
+            b.reg
+        } else {
+            None
+        }
     }
 }
 #[derive(Debug)]

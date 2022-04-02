@@ -20,11 +20,25 @@ pub fn add_reg_idx() -> i32{
     *b
 }
 
+pub fn check_load_ins(name: &String) -> Option<String>{
+    let tmp_str = name.to_string();
+    let a = tmp_str.split(' ').collect::<Vec<&str>>();
+    if a.len() == 4 && a[2] == "load" {
+        Some(a[3][1..a[3].len()-1].to_string())
+    } else {
+        None
+    }
+}
 pub fn get_reg_idx(name: &String) -> i32{
     let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
     let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
-    if let Some(i) = g.get_var_reg(name){
-        i
+    let a = check_load_ins(name);
+    if let Some(name) = a{
+        if let Some(i) = g.get_var_reg(&name){
+            i
+        } else {
+            0
+        }
     } else {
         let a = REG_INDEX.lock().unwrap();
         let b = a.borrow();
@@ -34,44 +48,21 @@ pub fn get_reg_idx(name: &String) -> i32{
 
 fn test(a_string: String, c_string: String, a_reg_idx: i32, c_reg_idx: i32,reg_idx: i32,
         operation: String) -> String{
-    let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-    let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
     if let Ok(d) = c_string.parse::<i32>(){
         if let Ok(e) = a_string.parse::<i32>(){
             format!("\t%{} = {} {}, {}\n", reg_idx, operation,e, d)
         } else {
-            if g.exist_var_symbol(&a_string){
-                format!("\t%{} = {} %{}, {}\n",reg_idx, operation,
-                        a_reg_idx,d)
-            } else {
-                a_string + &format!("\t%{} = {} %{}, {}\n",reg_idx, operation,
+            a_string + &format!("\t%{} = {} %{}, {}\n",reg_idx, operation,
                                     a_reg_idx,d)
-            }
         }
     } else {
         if let Ok(f) = a_string.parse::<i32>(){
-            if g.exist_var_symbol(&c_string){
-                format!("\t%{} = {} {}, %{}\n", reg_idx, operation, f, c_reg_idx)
-            } else {
-                c_string + &format!("\t%{} = {} {}, %{}\n", reg_idx, operation, f, c_reg_idx)
-            }
+            c_string + &format!("\t%{} = {} {}, %{}\n", reg_idx, operation, f, c_reg_idx)
         } else {
             let tmp = format!("\t%{} = {} %{}, %{}\n",reg_idx, operation, a_reg_idx,
                               c_reg_idx);
             let mut tmp1 = "".to_string();
-            if g.exist_var_symbol(&a_string) {
-                if g.exist_var_symbol(&c_string){
-                    tmp1 = "".to_string();
-                } else {
-                    tmp1 = c_string;
-                }
-            } else {
-                if g.exist_var_symbol(&c_string){
-                    tmp1 = a_string;
-                } else {
-                    tmp1 = a_string + &c_string;
-                }
-            }
+            tmp1 = a_string + &c_string;
             tmp1 + &tmp
         }
     }
@@ -159,10 +150,9 @@ impl GetKoopa for Stmt{
                 }
             }
             StmtType::Assign((ident, exp)) => {
-                let s1 = format!("\t%{} = load @{}\n", add_reg_idx(), ident.ident);
                 let s2 = exp.get_koopa();
                 let s3 = format!("\tstore %{}, @{}\n",get_reg_idx(&s2), ident.ident);
-                s1 + &s2 + &s3
+                s2 + &s3
             }
             _ => "ParserError".to_string()
         }
@@ -189,8 +179,6 @@ impl GetKoopa for UnaryExp{
         if let Some(a) = &self.primary_exp{
             a.get_koopa()
         }  else {
-            let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-            let mut go = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
             if let Some((a,b))  = &self.unary_exp{
                 let g = &a.unary_op;
                 match g{
@@ -200,6 +188,8 @@ impl GetKoopa for UnaryExp{
                             let reg_idx = add_reg_idx();
                             format!("\t%{} = add 0, {}\n",reg_idx, c)
                         } else {
+                            let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                            let mut go = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                             let reg_idxx = get_reg_idx(&s);
                             if go.exist_var_symbol(&s){
                                 let reg_idx = add_reg_idx();
@@ -216,6 +206,8 @@ impl GetKoopa for UnaryExp{
                             let reg_idx = add_reg_idx();
                             format!("\t%{} = sub 0, {}\n",reg_idx, c)
                         } else {
+                            let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                            let mut go = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                             let reg_idxx = get_reg_idx(&s);
                             if go.exist_var_symbol(&s){
                                 let reg_idx = add_reg_idx();
@@ -232,6 +224,8 @@ impl GetKoopa for UnaryExp{
                             let reg_idx = add_reg_idx();
                             format!("\t%{} = eq {}, 0\n",reg_idx, c)
                         } else {
+                            let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                            let mut go = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                             let reg_idxx = get_reg_idx(&s);
                             if go.exist_var_symbol(&s){
                                 let reg_idx = add_reg_idx();
@@ -271,9 +265,13 @@ impl GetKoopa for PrimaryExp{
            } else if let Some(a) = &self.lval{
                let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                let mut g  = m.borrow_mut().get_mut();
-               if g.now_symbol.as_ref().unwrap().lock().unwrap().exist_const_symbol(&a.ident){
-                    format!("{}", g.now_symbol.as_ref().unwrap().lock().unwrap().get_const_value(&a
-                        .ident))
+               let mut k = g.now_symbol.as_ref().unwrap().lock().unwrap();
+               if k.exist_const_symbol(&a.ident){
+                    format!("{}", k.get_const_value(&a.ident))
+               } else if k.exist_var_symbol(&a.ident){
+                   let tmp = add_reg_idx();
+                   k.set_var_reg(&a.ident, tmp);
+                   format!("\t%{} = load @{}\n", tmp, a.ident)
                } else {
                    "".to_string()
                }
@@ -401,8 +399,6 @@ impl GetKoopa for LAndExp{
                 let e_reg = add_reg_idx();
                 let d_reg = add_reg_idx();
                 let reg_idx = add_reg_idx();
-                let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                 if let Ok(d) = c_string.parse::<i32>(){
                     if let Ok(e) = a_string.parse::<i32>(){
                         let s1 = format!("\t%{} = ne 0, {}\n",e_reg, e);
@@ -411,6 +407,8 @@ impl GetKoopa for LAndExp{
                     else {
                         let s1 = format!("\t%{} = ne 0, %{}\n",e_reg, a_reg_idx);
                         let s2 = format!("\t%{} = ne 0, {}\n",d_reg, d);
+                        let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                        let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                         if g.exist_var_symbol(&a_string){
                             s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
                         } else {
@@ -421,6 +419,8 @@ impl GetKoopa for LAndExp{
                     if let Ok(e) = a_string.parse::<i32>(){
                         let s1 = format!("\t%{} = ne 0, {}\n",e_reg, e);
                         let s2 = format!("\t%{} = ne 0, %{}\n",d_reg, c_reg_idx);
+                        let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                        let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                         if g.exist_var_symbol(&c_string){
                             s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
                         } else {
@@ -429,6 +429,8 @@ impl GetKoopa for LAndExp{
                     } else {
                         let s1 = format!("\t%{} = ne 0, %{}\n",e_reg, a_reg_idx);
                         let s2 = format!("\t%{} = ne 0, %{}\n",d_reg, c_reg_idx);
+                        let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                        let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                         if g.exist_var_symbol(&c_string){
                             if g.exist_var_symbol(&a_string){
                                 s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
@@ -469,8 +471,6 @@ impl GetKoopa for LOrExp{
                 let e_reg = add_reg_idx();
                 let d_reg = add_reg_idx();
                 let reg_idx = add_reg_idx();
-                let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                 if let Ok(d) = c_string.parse::<i32>(){
                     if let Ok(e) = a_string.parse::<i32>(){
                         let s1 = format!("\t%{} = ne 0, {}\n",e_reg, e);
@@ -479,6 +479,8 @@ impl GetKoopa for LOrExp{
                     } else {
                         let s1 = format!("\t%{} = ne 0, %{}\n",e_reg, a_reg_idx);
                         let s2 = format!("\t%{} = ne 0, {}\n",d_reg, d);
+                        let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                        let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                         if g.exist_var_symbol(&a_string){
                             s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
                         } else {
@@ -489,6 +491,8 @@ impl GetKoopa for LOrExp{
                     if let Ok(e) = a_string.parse::<i32>(){
                         let s1 = format!("\t%{} = ne 0, {}\n",e_reg, e);
                         let s2 = format!("\t%{} = ne 0, %{}\n",d_reg, c_reg_idx);
+                        let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                        let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                         if g.exist_var_symbol(&c_string){
                             s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
                         } else {
@@ -497,6 +501,8 @@ impl GetKoopa for LOrExp{
                     } else {
                         let s1 = format!("\t%{} = ne 0, %{}\n",e_reg, a_reg_idx);
                         let s2 = format!("\t%{} = ne 0, %{}\n",d_reg, c_reg_idx);
+                        let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                        let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                         if g.exist_var_symbol(&c_string){
                             if g.exist_var_symbol(&a_string){
                                 s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
@@ -818,9 +824,13 @@ impl EvalConst for PrimaryExp{
         } else {
             if let Some(tmp) = &self.lval{
                 let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                let i = g.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap()
-                    .get_const_value(&tmp.ident);
-                return Some(Value::Int(i))
+                let mut s = g.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
+                if s.exist_const_symbol(&tmp.ident){
+                    let i = s.get_const_value(&tmp.ident);
+                    return Some(Value::Int(i))
+                } else {
+                    None
+                }
             } else {
                 None
             }
