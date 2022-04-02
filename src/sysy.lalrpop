@@ -1,6 +1,5 @@
 // lalrpop 里的约定
 use crate::frontEnd::ast::*;
-use crate::frontEnd::parser::GLOBAL_SYMBOL_TABLE_ALLOCATOR;
 grammar;
 
 // 约束 lexer 的行为

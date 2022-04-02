@@ -5,14 +5,21 @@ use std::env::args;
 use std::fs::read_to_string;
 use std::io::{Result, Write};
 use std::fs::File;
+use crate::frontEnd::symbol_table::GlobalSymbolTableAllocator;
+use std::sync::Mutex;
+use std::cell::RefCell;
+
 
 mod codeGenerator;
 mod frontEnd;
 
 use frontEnd::parser::GetKoopa;
 use crate::codeGenerator::code_generator::GenerateAsm;
+use lazy_static::lazy_static;
 // 引用 lalrpop 生成的解析器
 // 因为我们刚刚创建了 sysy.lalrpop, 所以模块名是 sysy
+
+
 lalrpop_mod!(sysy);
 
 fn main() -> Result<()> {
@@ -41,8 +48,10 @@ fn main() -> Result<()> {
         file.write(ir.as_bytes());
     } else if mode == "-riscv"{
         let ir = ast.get_koopa();
+        println!("{}", ir);
         let driver = koopa::front::Driver::from(ir);
         let program = driver.generate_program().unwrap();
+        // println!("{:#?}", program.func_layout());
         let ir = program.generate();
         file.write(ir.as_bytes());
     }

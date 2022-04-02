@@ -7,12 +7,10 @@ use std::ops::{Add, Mul};
 use std::sync::Mutex;
 use symbol_table::GlobalSymbolTableAllocator;
 use crate::frontEnd::symbol_table::Value;
+use crate::frontEnd::GLOBAL_SYMBOL_TABLE_ALLOCATOR;
+use crate::frontEnd::REG_INDEX;
 
-lazy_static!{
-    pub static ref REG_INDEX: Mutex<RefCell<i32>> = Mutex::new(RefCell::new(0));
-    pub static ref GLOBAL_SYMBOL_TABLE_ALLOCATOR: Mutex<RefCell<GlobalSymbolTableAllocator>> = Mutex::new
-    (RefCell::new(GlobalSymbolTableAllocator{ now_symbol: None }));
-}
+
 pub fn add_reg_idx() -> i32{
     let mut a = REG_INDEX.lock().unwrap();
     let mut b = a.get_mut();

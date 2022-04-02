@@ -1,23 +1,31 @@
 //use koopa::ir::{BinaryOp, FunctionData, Program, Value, ValueKind};
-use koopa::ir::values::{Binary, Return, BinaryOp};
+use koopa::ir::values::{Binary, Return, BinaryOp, Alloc, Store, Load};
 use lazy_static::lazy_static;
 use std::sync::Mutex;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use koopa::ir::entities::{Value, Program, FunctionData, ValueKind};
+use koopa::ir::entities::{Value, Program, FunctionData, ValueKind, ValueData};
+use crate::frontEnd::GlobalSymbolTableAllocator;
 
 pub trait GenerateAsm{
     fn generate(&self) -> String;
 }
+// todo 这里的allocator不是allocator，他只是一个item，之后可以在外面套一个真正的global allocator
 pub trait RegAlloctor{
     fn alloc_reg(&mut self) -> Option<i32>;
     fn free_reg(&mut self, idx: i32) -> Option<i32>;
+    #[deprecated]
     fn bound_reg(&mut self, value: Value, idx: i32) -> Option<i32>;
+    #[deprecated]
     fn get_reg(&self, value: Value) -> Option<i32>;
+
+    fn bound_space(&mut self, value: Value);
+    fn get_space(&self, value: Value) -> Option<i32>;
 }
 struct GlobalRegAlloctor{
     reg_pool: Vec<i32>,
-    map: HashMap<Value, i32>
+    map: HashMap<Value, i32>,
+    offset: i32
 }
 impl GlobalRegAlloctor{
     fn new(bottom: i32, top: i32) -> GlobalRegAlloctor{
@@ -25,7 +33,7 @@ impl GlobalRegAlloctor{
         for i in (bottom..top+1).rev(){
             v.push(i);
         }
-        GlobalRegAlloctor{ reg_pool: v, map: HashMap::new() }
+        GlobalRegAlloctor{ reg_pool: v, map: HashMap::new(), offset: 0 }
     }
 }
 impl RegAlloctor for GlobalRegAlloctor{
@@ -51,6 +59,14 @@ impl RegAlloctor for GlobalRegAlloctor{
         self.map.insert(value, idx);
         Some(idx)
     }
+    fn bound_space(&mut self, value: Value){
+        self.map.insert(value, self.offset);
+        self.offset += 4;
+    }
+    fn get_space(&self, value: Value) -> Option<i32> {
+        Some(*self.map.get(&value).unwrap())
+    }
+
 }
 lazy_static!{
     static ref global_reg_allocator: Mutex<RefCell<GlobalRegAlloctor>> = Mutex::new(RefCell::new
@@ -70,10 +86,25 @@ impl GenerateAsm for Program{
     }
 }
 
+fn calculate_and_allocate_space(this: &FunctionData) -> i32{
+    let mut bits:i32 = 0;
+    for (&bb, node) in this.layout().bbs(){
+        for &inst in node.insts().keys(){
+            let value_data = this.dfg().value(inst);
+            if !value_data.ty().is_unit(){
+                bits = bits + 4;
+            }
+        }
+    }
+    bits
+}
+
 impl GenerateAsm for FunctionData{
     fn generate(&self) -> String {
         let mut s = "".to_string();
         s += &format!("{}:\n", &self.name().to_string()[1..]);
+        let sp = calculate_and_allocate_space(self);
+        s += &format!("\taddi sp, sp, -{}\n",sp);
         for (&bb, node) in self.layout().bbs(){
             for &inst in node.insts().keys(){
                 let value_data = self.dfg().value(inst);
@@ -94,10 +125,21 @@ impl GenerateAsm for FunctionData{
                         // self.dfg().value(l).kind()
                         self.bin_gen(&mut s, bin, inst);
                     }
+                    ValueKind::Store(store) => {
+                        self.store_gen(&mut s, store, inst);
+                    }
+                    ValueKind::Load(load) => {
+                        self.load_gen(&mut s, load, inst);
+                    }
+                    ValueKind::Alloc(alloc) => {
+                        self.alloc_gen(&mut s, alloc, inst);
+                    }
                     _ => unreachable!(),
                 }
             }
         }
+        s += &format!("\taddi sp, sp, {}\n",sp);
+        s += &format!("\tret\n");
         s
     }
 }
@@ -105,24 +147,23 @@ impl GenerateAsm for FunctionData{
 trait splitGen{
     fn return_gen(&self, s: &mut String, ret: &Return, value: Value);
     fn bin_gen(&self, s: &mut String, bin: &Binary, value: Value);
+    fn alloc_gen(&self, s: &mut String, alloc: &Alloc, value: Value);
+    fn load_gen(&self, s: &mut String, alloc: &Load, value: Value);
+    fn store_gen(&self, s: &mut String, alloc: &Store, value: Value);
 }
 impl splitGen for FunctionData {
     fn return_gen(&self, s: &mut String, ret: &Return, value: Value) {
         if let Some(val) = ret.value() {
             let a = self.dfg().value(val);
             let b = a.kind();
-            let g = global_reg_allocator.lock().unwrap();
-            let r = g.borrow_mut();
+            let mut g = global_reg_allocator.lock().unwrap();
+            let mut r = g.borrow_mut();
             match b {
                 ValueKind::Integer(i) =>
                     *s += &format!("\tli a0, {}\n", i.value()),
-                ValueKind::Binary(bin) => {
-                    *s += &format!("\tli a0, t{}\n", r.get_reg(val).unwrap());
-                }
-                _ => unreachable!(),
+                _ => *s += &format!("\tlw a0, {}(sp)\n", r.get_space(val).unwrap()),
             }
         }
-        *s += &format!("\tret\n");
     }
     fn bin_gen(&self, s: &mut String, bin: &Binary, value: Value) {
         let r_value = bin.rhs();
@@ -134,7 +175,7 @@ impl splitGen for FunctionData {
         let g = global_reg_allocator.lock().unwrap();
         let mut r = g.borrow_mut();
         let idx = r.alloc_reg().unwrap();
-        r.bound_reg(value, idx);
+        r.bound_space(value);
         let mut tmp_r:i32 = 0;
         let mut tmp_l:i32 = 0;
         if let ValueKind::Integer(i) = self.dfg().value(r_value).kind(){
@@ -146,7 +187,9 @@ impl splitGen for FunctionData {
                 r_s = format!("t{}", tmp_r);
             }
         } else {
-            r_s = format!("t{}", r.get_reg(r_value).unwrap());
+            tmp_r = r.alloc_reg().unwrap();
+            *s += &format!("\tlw t{}, {}\n", tmp_r, r.get_space(r_value).unwrap());
+            r_s = format!("t{}", tmp_r);
         }
         if let ValueKind::Integer(i) = self.dfg().value(l_value).kind(){
             if(i.value() == 0){
@@ -157,7 +200,9 @@ impl splitGen for FunctionData {
                 l_s = format!("t{}", tmp_l);
             }
         } else {
-            l_s = format!("t{}", r.get_reg(l_value).unwrap());
+            tmp_l = r.alloc_reg().unwrap();
+            *s += &format!("\tlw t{}, {}(sp)\n", tmp_l, r.get_space(l_value).unwrap());
+            l_s = format!("t{}", tmp_l);
         }
         match op{
             BinaryOp::Add => {
@@ -232,7 +277,41 @@ impl splitGen for FunctionData {
             }
             _ => bin_operation = "".to_string()
         }
+        *s += &format!("\tsw t{}, {}(sp)\n", idx, r.get_space(value).unwrap());
         r.free_reg(tmp_l);
         r.free_reg(tmp_r);
+    }
+    fn load_gen(&self, s: &mut String, load: &Load, value: Value) {
+        let src_value = load.src();
+        let mut m = global_reg_allocator.lock().unwrap();
+        let mut g = m.get_mut();
+        let reg_idx = g.alloc_reg().unwrap();
+        g.bound_space(value);
+        let offset = g.get_space(value).unwrap();
+        let src_offset = g.get_space(src_value).unwrap();
+        *s += &(format!("\tlw t{}, {}(sp)\n",reg_idx, src_offset) + &format!("\tsw t{}, {}(sp)\n",
+                                                                         reg_idx, offset));
+    }
+    fn store_gen(&self, s: &mut String, store: &Store, value: Value) {
+        let value = store.value();
+        let dest = store.dest();
+        let mut m = global_reg_allocator.lock().unwrap();
+        let mut g = m.get_mut();
+        let reg_idx = g.alloc_reg().unwrap();
+        g.bound_space(dest);
+        let offset = g.get_space(dest).unwrap();
+        if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
+            *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &format!("\tsw t{}, {}(sp)\n",
+                                                                             reg_idx, offset));
+        } else {
+            let src_offset = g.get_space(value).unwrap();
+            *s += &(format!("\tlw t{}, {}(sp)\n",reg_idx, src_offset) + &format!("\tsw t{}, {}\
+            (sp)\n",
+                                                                             reg_idx, offset));
+        }
+        g.free_reg(reg_idx);
+    }
+    fn alloc_gen(&self, s: &mut String, alloc: &Alloc, value: Value) {
+        global_reg_allocator.lock().unwrap().get_mut().bound_space(value);
     }
 }
