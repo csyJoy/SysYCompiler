@@ -164,11 +164,14 @@ impl GetKoopa for Stmt{
                         .ident).unwrap());
                     format!("\tstore {}, @{}\n",i, unique_name)
                 } else {
-                    let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                    let mut g = &m.borrow_mut().get_mut().now_symbol.as_ref().unwrap();
-                    let mut go = g.lock().unwrap();
-                    let unique_name = format!("{}_{}",ident.ident, go.exist_var_symbol(&ident
-                        .ident).unwrap());
+                    let mut unique_name = "".to_string();
+                    {
+                        let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                        let mut g = &m.borrow_mut().get_mut().now_symbol.as_ref().unwrap();
+                        let mut go = g.lock().unwrap();
+                        unique_name = format!("{}_{}", ident.ident, go.exist_var_symbol(&ident
+                            .ident).unwrap());
+                    }
                     let s3 = format!("\tstore %{}, @{}\n",get_reg_idx(&s2), unique_name);
                     s2 + &s3
                 }
