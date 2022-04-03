@@ -30,14 +30,14 @@ pub fn check_load_ins(name: &String) -> Option<String>{
     }
 }
 pub fn get_reg_idx(name: &String) -> i32{
-    let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-    let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
     let a = check_load_ins(name);
     if let Some(name) = a{
+        let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+        let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
         if let Some(i) = g.get_var_reg(&name){
             i
         } else {
-            0
+            unreachable!()
         }
     } else {
         let a = REG_INDEX.lock().unwrap();
