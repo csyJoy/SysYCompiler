@@ -97,12 +97,8 @@ impl SymbolTable{
         }
     }
     pub fn get_var_reg(&self, name: &String) -> Option<i32>{
-        if let a = self.table.get(name){
-            if let Some(b) =  a{
-                b.reg
-            } else {
-                None
-            }
+        if let Some(a) = self.table.get(name){
+            a.reg
         } else {
             if let Some(c) = &self.last_scpoe{
                 let mut d = c.lock().unwrap();
