@@ -32,8 +32,8 @@ impl SymbolTable{
         }
     }
     pub fn exist_const_symbol(&self, name: &String) -> bool{
-        if let a = &self.table.get(name){
-            let c  = match a.unwrap().symbol_type{
+        if let Some(a) = self.table.get(name){
+            let c  = match a.symbol_type{
                 SymbolType::Const => true,
                 SymbolType::Var => false
             };
