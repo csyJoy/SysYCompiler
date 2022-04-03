@@ -188,7 +188,7 @@ impl splitGen for FunctionData {
             }
         } else {
             tmp_r = r.alloc_reg().unwrap();
-            *s += &format!("\tlw t{}, {}\n", tmp_r, r.get_space(r_value).unwrap());
+            *s += &format!("\tlw t{}, {}(sp)\n", tmp_r, r.get_space(r_value).unwrap());
             r_s = format!("t{}", tmp_r);
         }
         if let ValueKind::Integer(i) = self.dfg().value(l_value).kind(){
@@ -280,6 +280,7 @@ impl splitGen for FunctionData {
         *s += &format!("\tsw t{}, {}(sp)\n", idx, r.get_space(value).unwrap());
         r.free_reg(tmp_l);
         r.free_reg(tmp_r);
+        r.free_reg(idx);
     }
     fn load_gen(&self, s: &mut String, load: &Load, value: Value) {
         let src_value = load.src();
@@ -291,6 +292,7 @@ impl splitGen for FunctionData {
         let src_offset = g.get_space(src_value).unwrap();
         *s += &(format!("\tlw t{}, {}(sp)\n",reg_idx, src_offset) + &format!("\tsw t{}, {}(sp)\n",
                                                                          reg_idx, offset));
+        g.free_reg(reg_idx);
     }
     fn store_gen(&self, s: &mut String, store: &Store, value: Value) {
         let value = store.value();
