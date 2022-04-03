@@ -3,9 +3,11 @@ use std::hash;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::sync::Weak;
+use crate::frontEnd::ast::PrimaryExp;
 
 #[derive(Debug)]
 pub struct SymbolTable{
+    pub symbol_id: i32,
     last_scpoe: Option<Arc<Mutex<SymbolTable>>>,
     table: HashMap<String, SymbolInner>,
 }
@@ -29,38 +31,85 @@ impl SymbolTable{
                                   reg: None});
         }
     }
-    pub fn exist_const_symbol(&self, name: &String)-> bool{
-
-        let a  = match &self.table.get(name).unwrap().symbol_type{
-            SymbolType::Const => true,
-            SymbolType::Var => false
-        };
-        self.table.contains_key(name) &&  a
+    pub fn exist_const_symbol(&self, name: &String) -> bool{
+        if let a = &self.table.get(name){
+            let c  = match a.unwrap().symbol_type{
+                SymbolType::Const => true,
+                SymbolType::Var => false
+            };
+            self.table.contains_key(name) && c
+        } else {
+            if let Some(b) = &self.last_scpoe{
+                let d = b.lock().unwrap();
+                d.exist_const_symbol(name)
+            } else {
+                false
+            }
+       }
     }
-    pub fn exist_var_symbol(&self, name: &String)-> bool{
-        let a  = match &self.table.get(name).unwrap().symbol_type{
-            SymbolType::Const => false,
-            SymbolType::Var => true
-        };
-        self.table.contains_key(name) &&  a
+    pub fn exist_var_symbol(&self, name: &String)-> Option<i32>{
+        if let Some(a) = self.table.get(name){
+            let c  = match a.symbol_type{
+                SymbolType::Const => false,
+                SymbolType::Var => true
+            };
+            if self.table.contains_key(name) && c{
+                Some(self.symbol_id)
+            } else {
+                None
+            }
+        } else {
+            if let Some(b) = &self.last_scpoe{
+                let d = b.lock().unwrap();
+                d.exist_var_symbol(name)
+            } else {
+                None
+            }
+        }
     }
     pub fn get_const_value(&self, name: &String) -> i32{
-        let a = self.table.get(name).unwrap().value.as_ref().unwrap();
-        match a{
-            Value::Int(b) => *b,
-            _ => 0
+        if let Some(b) = self.table.get(name) {
+            if let Some(a) = &b.value{
+                match a{
+                    Value::Int(i) => *i,
+                    _ => 0
+                }
+            } else {
+                0
+            }
+        } else {
+            if let Some(d) = &self.last_scpoe{
+                let e = d.lock().unwrap();
+                e.get_const_value(name)
+            } else {
+                0
+            }
         }
     }
     pub fn set_var_reg(&mut self, name: &String, reg_idx: i32){
-        let a = self.table.get_mut(name).unwrap();
-        a.reg = Some(reg_idx);
+        if let Some(a) = self.table.get_mut(name){
+            a.reg = Some(reg_idx);
+        } else {
+            if let Some(b) = &self.last_scpoe{
+                let mut d = b.lock().unwrap();
+                d.set_var_reg(name, reg_idx);
+            }
+        }
     }
     pub fn get_var_reg(&self, name: &String) -> Option<i32>{
-        let a = self.table.get(name);
-        if let Some(b) =  a{
-            b.reg
+        if let a = self.table.get(name){
+            if let Some(b) =  a{
+                b.reg
+            } else {
+                None
+            }
         } else {
-            None
+            if let Some(c) = &self.last_scpoe{
+                let mut d = c.lock().unwrap();
+                d.get_var_reg(name)
+            } else {
+                None
+            }
         }
     }
 }
@@ -81,23 +130,30 @@ struct SymbolInner{
 }
 
 pub struct GlobalSymbolTableAllocator{
-    pub now_symbol: Option<Arc<Mutex<SymbolTable>>>
+    pub now_symbol: Option<Arc<Mutex<SymbolTable>>>,
+    pub symbol_table_vec: Vec<Arc<Mutex<SymbolTable>>>,
+    pub now_id: i32
 }
 impl GlobalSymbolTableAllocator{
     pub(crate) fn allocate_symbol_table(&mut self) -> Arc<Mutex<SymbolTable>>{
         if let Some(a) = &self.now_symbol{
+            self.now_id = self.now_id + 1;
             let tmp = Arc::new(Mutex::new(SymbolTable{last_scpoe: Some(a.clone()),
-                table: HashMap::new()}));
+                table: HashMap::new(), symbol_id: self.now_id}));
             self.now_symbol = Some(tmp.clone());
+            self.symbol_table_vec.push(tmp.clone());
             return tmp;
         } else {
+            self.now_id = self.now_id + 1;
             let tmp = Arc::new(Mutex::new(SymbolTable{last_scpoe: None,
-                table:HashMap::new()}));
+                table:HashMap::new(),symbol_id: self.now_id}));
             self.now_symbol = Some(tmp.clone());
+            self.symbol_table_vec.push(tmp.clone());
             return tmp;
         }
     }
     pub(crate) fn deallocate_symbol_table(&mut self){
+        //todo: 没有对vec中的arc做处理，所以说symbol_table是不会消失的
         let mut tmp: Option<Arc<Mutex<SymbolTable>>> = None;
         if let Some(a) = &self.now_symbol{
             if let Some(b) = &a.lock().unwrap().last_scpoe{

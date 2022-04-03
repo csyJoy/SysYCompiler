@@ -41,7 +41,9 @@ pub struct BlockItem{
 #[derive(Debug)]
 pub enum StmtType{
     Return(Exp),
-    Assign((Lval, Exp))
+    Assign((Lval, Exp)),
+    StmtBlock(Block),
+    Exp(Option<Exp>)
 }
 #[derive(Debug)]
 pub struct Stmt{
