@@ -224,7 +224,7 @@ impl GetKoopa for Stmt{
                         let b = a.deref();
                         if let (c,d,e) = b{
                             let s = alloc_reg_for_const(c.get_koopa());
-                            let s1 = format!("\tbr %{}, %then{}, %else_{}\n",get_reg_idx(&s),
+                            let s1 = format!("\tbr %{}, %then_{}, %else_{}\n",get_reg_idx(&s),
                                              branch_count, branch_count);
                             let s2 = check_return(format!("%then_{}:\n", branch_count) +
                                 &alloc_reg_for_const(d
