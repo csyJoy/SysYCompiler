@@ -20,7 +20,7 @@ lazy_static!{
 
 pub fn alloc_reg_for_const(s: String) -> String{
     if let Ok(i) = s.parse::<i32>(){
-        format!("\tli {}, %{}\n", i, add_reg_idx())
+        format!("\t%{} = ne 0, {}\n", add_reg_idx(), i)
     }else{
         s
     }
