@@ -18,6 +18,15 @@ lazy_static!{
     static ref global_branch_count:Arc<Mutex<RefCell<i32>>> = Arc::new(Mutex::new(RefCell::new(1)));
 }
 
+pub fn check_return(s:String, branch_count: i32) -> String{
+    let a = s.split("\n").collect::<Vec<&str>>();
+    let b = a[a.len()-2].split(" ").collect::<Vec<&str>>();
+    if b.len() >= 2 && b[1] == "%end"{
+        return s
+    } else {
+        return s + &format!("\tjump %end_{}\n", branch_count)
+    }
+}
 pub fn alloc_reg_for_const(s: String) -> String{
     if let Ok(i) = s.parse::<i32>(){
         format!("\t%{} = ne 0, {}\n", add_reg_idx(), i)
@@ -111,8 +120,13 @@ impl GetKoopa for FuncDef{
                 typ = "i32";
             }
         }
-        format!("fun @{}(): {} ", &self.id, typ).to_string() + &format!("{{\n%entry:\n") + &self
-        .block.get_koopa() + &format!("}}\n")
+        let s1 = format!("fun @{}(): {} ", &self.id, typ).to_string() + &format!
+        ("{{\n%entry:\n\talloc \
+        @result, i32\n") + &self
+        .block.get_koopa();
+        let idx = add_reg_idx();
+        let s  = &format!("%end:\n\t%{} = load @result\n\tret %{}\n}}\n", idx, idx);
+        s1 + s
     }
 }
 
@@ -162,14 +176,14 @@ impl GetKoopa for Stmt{
             StmtType::Return(exp) => {
                 let a = exp.eval_const();
                 if let Some(Value::Int(i)) = a{
-                    return format!("\tret {}\n", i);
+                    return format!("\tstore {}, @result\n\tjump %end\n", i);
                 } else {
                     let exp_string = exp.get_koopa();
                     let exp_reg_idx = get_reg_idx(&exp_string);
                     if let Ok(c) = exp_string.parse::<i32>(){
-                        return format!("\tret {}\n", c);
+                        return format!("\tstore {}, @result\n\tjump %end\n", c);
                     } else {
-                        exp_string + &format!("\tret %{}\n", exp_reg_idx)
+                        exp_string + &format!("\tstore %{}, @result\n\tjump %end\n", exp_reg_idx)
                     }
                 }
             }
@@ -213,12 +227,11 @@ impl GetKoopa for Stmt{
                             let s = alloc_reg_for_const(c.get_koopa());
                             let s1 = format!("\tbr %{}, %then{}, %else_{}\n",get_reg_idx(&s),
                                              branch_count, branch_count);
-                            let s2 = format!("%then_{}:\n", branch_count) + &alloc_reg_for_const(d
-                                .get_koopa()) +
-                                &format!("\tjump %end_{}\n", branch_count);
-                            let s3 = format!("%else_{}:\n", branch_count) + &alloc_reg_for_const
-                                (e.get_koopa()) +
-                                &format!("\tjump %end_{}\n", branch_count);
+                            let s2 = check_return(format!("%then_{}:\n", branch_count) +
+                                &alloc_reg_for_const(d
+                                .get_koopa()), branch_count);
+                            let s3 = check_return(format!("%else_{}:\n", branch_count) + &alloc_reg_for_const
+                                (e.get_koopa()),branch_count);
                             s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
                         } else {
                             unreachable!()
@@ -230,21 +243,20 @@ impl GetKoopa for Stmt{
                             let s = alloc_reg_for_const(c.get_koopa());
                             let s1 = format!("\tbr %{}, %then_{}, %else_{}\n",  get_reg_idx(&s),
                                              branch_count, branch_count);
-                            let s2 = format!("%then_{}:\n", branch_count) + &alloc_reg_for_const
-                                (d.get_koopa())
-                                             + &format!("\tjump %end_{}\n", branch_count);
-                            let s3 = format!("%else_{}:\n", branch_count) + &alloc_reg_for_const
-                                (e.get_koopa())
-                                             + &format!("\tjump %end_{}\n", branch_count);
+                            let s2 = check_return(format!("%then_{}:\n", branch_count) +
+                                                      &alloc_reg_for_const(d
+                                                          .get_koopa()), branch_count);
+                            let s3 = check_return(format!("%else_{}:\n", branch_count) + &alloc_reg_for_const
+                                (e.get_koopa()),branch_count);
                             s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
                         } else if let (c, d, None) = b{
                             let s = alloc_reg_for_const(c.get_koopa());
                             let s1 = format!("\tbr %{}, %then_{}, %else_{}\n",get_reg_idx(&s),
                                              branch_count, branch_count) ;
-                            let s2 = format!("%then_{}:\n",branch_count) + &alloc_reg_for_const(d
-                                .get_koopa())
-                                        + &format!("\tjump %end_{}\n", branch_count);
-                            let s3 = format!("%else_{}:\n", branch_count) +  &format!("\tjump %end_{}\n", branch_count);
+                            let s2 = check_return(format!("%then_{}:\n", branch_count) +
+                                                      &alloc_reg_for_const(d
+                                                          .get_koopa()), branch_count);
+                            let s3 = check_return(format!("%else_{}:\n", branch_count),branch_count);
                             s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
                         } else {
                             unreachable!()
