@@ -17,6 +17,14 @@ use crate::frontEnd::ir_marco::{lor_code_gen, land_code_gen};
 lazy_static!{
     static ref global_branch_count:Arc<Mutex<RefCell<i32>>> = Arc::new(Mutex::new(RefCell::new(1)));
 }
+
+pub fn alloc_reg_for_const(s: String) -> String{
+    if let Ok(i) = s.parse::<i32>(){
+        format!("\tli {}, %{}\n", i, add_reg_idx())
+    }else{
+        s
+    }
+}
 pub fn add_branch_count() -> i32{
     let mut a = global_branch_count.lock().unwrap();
     let mut g = a.borrow_mut().get_mut();
@@ -190,8 +198,7 @@ impl GetKoopa for Stmt{
             StmtType::StmtBlock(block) => {
                 block.get_koopa()
             }
-            StmtType::Exp(exp) => {
-                if let Some(e) = exp{
+            StmtType::Exp(exp) => { if let Some(e) = exp{
                     e.get_koopa()
                 } else {
                     unreachable!()
@@ -203,12 +210,14 @@ impl GetKoopa for Stmt{
                     BranchType::Matched(a) => {
                         let b = a.deref();
                         if let (c,d,e) = b{
-                            let s = c.get_koopa();
+                            let s = alloc_reg_for_const(c.get_koopa());
                             let s1 = format!("\tbr %{}, %then{}, %else_{}\n",get_reg_idx(&s),
                                              branch_count, branch_count);
-                            let s2 = format!("%then_{}:\n", branch_count) + &d.get_koopa() +
+                            let s2 = format!("%then_{}:\n", branch_count) + &alloc_reg_for_const(d
+                                .get_koopa()) +
                                 &format!("\tjump %end_{}\n", branch_count);
-                            let s3 = format!("%else_{}:\n", branch_count) + &e.get_koopa() +
+                            let s3 = format!("%else_{}:\n", branch_count) + &alloc_reg_for_const
+                                (e.get_koopa()) +
                                 &format!("\tjump %end_{}\n", branch_count);
                             s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
                         } else {
@@ -218,20 +227,22 @@ impl GetKoopa for Stmt{
                     BranchType::UnMatched(a) => {
                         let b = a.deref();
                         if let (c, d, Some(e)) = b{
-                            let s = c.get_koopa();
-                            let s1 = format!("\tbr %{}, %then_{}, %else_{}\n",get_reg_idx(&s),
+                            let s = alloc_reg_for_const(c.get_koopa());
+                            let s1 = format!("\tbr %{}, %then_{}, %else_{}\n",  get_reg_idx(&s),
                                              branch_count, branch_count);
-                            let s2 = format!("%then_{}:\n", branch_count) + &d.get_koopa()
+                            let s2 = format!("%then_{}:\n", branch_count) + &alloc_reg_for_const
+                                (d.get_koopa())
                                              + &format!("\tjump %end_{}\n", branch_count);
-                            let s3 = format!("%else_{}:\n", branch_count) + &e.get_koopa()
+                            let s3 = format!("%else_{}:\n", branch_count) + &alloc_reg_for_const
+                                (e.get_koopa())
                                              + &format!("\tjump %end_{}\n", branch_count);
                             s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
                         } else if let (c, d, None) = b{
-                            let s = c.get_koopa();
+                            let s = alloc_reg_for_const(c.get_koopa());
                             let s1 = format!("\tbr %{}, %then_{}\n",get_reg_idx(&s),
-                                             branch_count) + &format!("\tjump \
-                                             %end_{}\n", branch_count);
-                            let s2 = format!("%then_{}:\n",branch_count) + &d.get_koopa()
+                                             branch_count) ;
+                            let s2 = format!("%then_{}:\n",branch_count) + &alloc_reg_for_const(d
+                                .get_koopa())
                                         + &format!("\tjump %end_{}\n", branch_count);
                             s + &s1 + &s2 + &format!("%end_{}:\n",branch_count)
                         } else {
