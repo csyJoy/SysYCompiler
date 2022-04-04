@@ -536,7 +536,7 @@ impl GetKoopa for LAndExp{
                         if let Some(_) = g.exist_var_symbol(&c_string){
                             land_code_gen(e_reg, d_reg, s1, s2)
                         } else {
-                            let s2_string = c_string + &s1;
+                            let s2_string = c_string + &s2;
                             land_code_gen(e_reg, d_reg, s1, s2_string)
                         }
                     } else {
@@ -553,11 +553,11 @@ impl GetKoopa for LAndExp{
                             }
                         } else {
                             if let Some(_) = g.exist_var_symbol(&a_string){
-                                let s2_string = c_string + &s1;
+                                let s2_string = c_string + &s2;
                                 land_code_gen(e_reg, d_reg, s1, s2_string)
                             } else {
                                 let s1_string = a_string + &s1;
-                                let s2_string = c_string + &s1;
+                                let s2_string = c_string + &s2;
                                 land_code_gen(e_reg, d_reg, s1_string, s2_string)
                             }
                         }
@@ -609,7 +609,7 @@ impl GetKoopa for LOrExp{
                         if let Some(_) = g.exist_var_symbol(&c_string){
                             lor_code_gen(e_reg, d_reg, s1, s2)
                         } else {
-                            let s2_string = c_string + &s1;
+                            let s2_string = c_string + &s2;
                             lor_code_gen(e_reg, d_reg, s1, s2_string)
                         }
                     } else {
@@ -626,11 +626,11 @@ impl GetKoopa for LOrExp{
                             }
                         } else {
                             if let Some(_) = g.exist_var_symbol(&a_string){
-                                let s2_string = c_string + &s1;
+                                let s2_string = c_string + &s2;
                                 lor_code_gen(e_reg, d_reg, s1, s2_string)
                             } else {
                                 let s1_string = a_string + &s1;
-                                let s2_string = c_string + &s1;
+                                let s2_string = c_string + &s2;
                                 lor_code_gen(e_reg, d_reg, s1_string, s2_string)
                             }
                         }
