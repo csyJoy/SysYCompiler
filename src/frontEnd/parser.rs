@@ -239,12 +239,13 @@ impl GetKoopa for Stmt{
                             s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
                         } else if let (c, d, None) = b{
                             let s = alloc_reg_for_const(c.get_koopa());
-                            let s1 = format!("\tbr %{}, %then_{}\n",get_reg_idx(&s),
-                                             branch_count) ;
+                            let s1 = format!("\tbr %{}, %then_{}, %else_{}\n",get_reg_idx(&s),
+                                             branch_count, branch_count) ;
                             let s2 = format!("%then_{}:\n",branch_count) + &alloc_reg_for_const(d
                                 .get_koopa())
                                         + &format!("\tjump %end_{}\n", branch_count);
-                            s + &s1 + &s2 + &format!("%end_{}:\n",branch_count)
+                            let s3 = format!("%else_{}:\n", branch_count) +  &format!("\tjump %end_{}\n", branch_count);
+                            s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
                         } else {
                             unreachable!()
                         }
