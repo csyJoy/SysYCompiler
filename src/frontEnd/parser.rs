@@ -27,10 +27,10 @@ pub fn check_return(s:String, branch_count: i32) -> String{
         return s + &format!("\tjump %end_{}\n", branch_count)
     }
 }
-pub fn is_jump(s: &String) -> bool{
+pub fn is_return(s: &String) -> bool{
     let a = s.split("\n").collect::<Vec<&str>>();
-    let b = a[a.len()-2].split(" ").collect::<Vec<&str>>();
-    if b.len() >= 2 && b[0] == "\tjump"{
+    let b = a[a.len()-3].split(" ").collect::<Vec<&str>>();
+    if b.len() >= 2 && b[2] == "@result"{
         true
     } else {
         false
@@ -161,7 +161,7 @@ impl GetKoopa for Vec<BlockItem>{
         let mut first = true;
         for v in self{
             let s1 = v.get_koopa();
-            if is_jump(&s1){
+            if is_return(&s1){
                 if first{
                     first = false;
                     s += &s1;
