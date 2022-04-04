@@ -214,7 +214,7 @@ impl GetKoopa for Stmt{
             StmtType::Exp(exp) => { if let Some(e) = exp{
                     e.get_koopa()
                 } else {
-                    unreachable!()
+                    "".to_string()
                 }
             }
             StmtType::Branch(branch) => {
