@@ -11,6 +11,7 @@ use std::cell::RefCell;
 
 
 mod codeGenerator;
+#[macro_use]
 mod frontEnd;
 
 use frontEnd::parser::GetKoopa;
@@ -19,6 +20,7 @@ use lazy_static::lazy_static;
 // 引用 lalrpop 生成的解析器
 // 因为我们刚刚创建了 sysy.lalrpop, 所以模块名是 sysy
 
+#[macro_use]
 
 lalrpop_mod!(sysy);
 

@@ -32,10 +32,24 @@ BlockItem: BlockItem = {
 }
 
 Stmt: Stmt = {
+    MatchedStmt => <>,
+    OpenStmt => <>,
+}
+
+MatchedStmt: Stmt = {
     <lval: Lval> "=" <exp: Exp> ";" => Stmt{stmt_type: StmtType::Assign((<>))},
     <exp:(Exp)?> ";" => Stmt{ stmt_type: StmtType::Exp(<>) },
     <block :Block> => Stmt{ stmt_type: StmtType::StmtBlock(<>) },
+    "if" "(" <exp: Exp> ")" <then: MatchedStmt> "else " <else_then: MatchedStmt> => Stmt{stmt_type: StmtType::Branch(
+    BranchType::Matched(Box::new((exp, then, else_then))))},
     "return" <exp: Exp> ";" => Stmt { stmt_type: StmtType::Return(<>) },
+}
+OpenStmt: Stmt = {
+    "if" "(" <exp: Exp> ")" <then: Stmt> => Stmt{stmt_type: StmtType::Branch(
+                                                BranchType::UnMatched(Box::new((exp, then, None))))},
+    "if" "(" <exp: Exp> ")" <then: MatchedStmt> "else" <else_then: OpenStmt> => Stmt{stmt_type: StmtType::Branch(
+                                                                               BranchType::UnMatched(Box::new((exp,
+                                                                               then, Some(else_then)))))},
 }
 
 Exp: Exp = <exp: LOrExp> => Exp { exp: Some(Box::new(exp)) };

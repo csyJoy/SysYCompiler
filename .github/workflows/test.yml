@@ -43,7 +43,7 @@ jobs:
           echo $PATH
           cd /root
           pwd
-          autotest -riscv -s lv5 /root/SysYCompiler
+          autotest -koopa -s lv6 /root/SysYCompiler
 
 
 
