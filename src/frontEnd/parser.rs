@@ -121,8 +121,7 @@ impl GetKoopa for FuncDef{
             }
         }
         let s1 = format!("fun @{}(): {} ", &self.id, typ).to_string() + &format!
-        ("{{\n%entry:\n\talloc \
-        @result, i32\n") + &self
+        ("{{\n%entry:\n\t@result = alloc i32\n") + &self
         .block.get_koopa();
         let idx = add_reg_idx();
         let s  = &format!("%end:\n\t%{} = load @result\n\tret %{}\n}}\n", idx, idx);
