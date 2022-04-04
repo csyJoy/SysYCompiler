@@ -10,6 +10,7 @@ dependencies = [
  "lalrpop",
  "lalrpop-util",
  "lazy_static",
+ "regex",
 ]
 
 [[package]]
