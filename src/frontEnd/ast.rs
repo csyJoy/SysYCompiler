@@ -39,11 +39,17 @@ pub struct BlockItem{
 }
 
 #[derive(Debug)]
+pub enum BranchType{
+    Matched(Box<(Exp, Stmt, Stmt)>),
+    UnMatched(Box<(Exp, Stmt, Option<Stmt>)>)
+}
+#[derive(Debug)]
 pub enum StmtType{
     Return(Exp),
     Assign((Lval, Exp)),
     StmtBlock(Block),
-    Exp(Option<Exp>)
+    Exp(Option<Exp>),
+    Branch(BranchType)
 }
 #[derive(Debug)]
 pub struct Stmt{

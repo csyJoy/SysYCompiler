@@ -1,6 +1,6 @@
-use std::borrow::BorrowMut;
+use std::borrow::{Borrow, BorrowMut};
 use crate::frontEnd::{ast, symbol_table};
-use crate::frontEnd::ast::{AddExp, AddOperator, Block, BlockItem, CompUnit, ConstDecl, ConstDef, ConstExp, ConstInitVal, Decl, EqExp, EqOperation, Exp, FuncDef, FuncType, InitVal, LAndExp, LOrExp, MulExp, MulOperator, PrimaryExp, RelExp, RelOperation, Stmt, StmtType, UnaryExp, UnaryOp, UnaryOperator, VarDecl, VarDef};
+use crate::frontEnd::ast::{AddExp, AddOperator, Block, BlockItem, BranchType, CompUnit, ConstDecl, ConstDef, ConstExp, ConstInitVal, Decl, EqExp, EqOperation, Exp, FuncDef, FuncType, InitVal, LAndExp, LOrExp, MulExp, MulOperator, PrimaryExp, RelExp, RelOperation, Stmt, StmtType, UnaryExp, UnaryOp, UnaryOperator, VarDecl, VarDef};
 use lazy_static::lazy_static;
 use std::cell::{Ref, RefCell};
 use std::mem;
@@ -11,7 +11,18 @@ use crate::frontEnd::ast::StmtType::StmtBlock;
 use crate::frontEnd::symbol_table::Value;
 use crate::frontEnd::GLOBAL_SYMBOL_TABLE_ALLOCATOR;
 use crate::frontEnd::REG_INDEX;
+use std::sync::Arc;
+use crate::frontEnd::ir_marco::{lor_code_gen, land_code_gen};
 
+lazy_static!{
+    static ref global_branch_count:Arc<Mutex<RefCell<i32>>> = Arc::new(Mutex::new(RefCell::new(1)));
+}
+pub fn add_branch_count() -> i32{
+    let mut a = global_branch_count.lock().unwrap();
+    let mut g = a.borrow_mut().get_mut();
+    *g = *g + 1;
+    *g
+}
 
 pub fn add_reg_idx() -> i32{
     let mut a = REG_INDEX.lock().unwrap();
@@ -40,8 +51,8 @@ pub fn get_reg_idx(name: &String) -> i32{
             unreachable!()
         }
     } else {
-        let a = REG_INDEX.lock().unwrap();
-        let b = a.borrow();
+        let mut a = REG_INDEX.lock().unwrap();
+        let mut b = a.borrow_mut().get_mut();
         *b
     }
 }
@@ -183,10 +194,54 @@ impl GetKoopa for Stmt{
                 if let Some(e) = exp{
                     e.get_koopa()
                 } else {
-                    "".to_string()
+                    unreachable!()
                 }
             }
-            _ => "ParserError".to_string()
+            StmtType::Branch(branch) => {
+                let branch_count = add_branch_count();
+                match branch{
+                    BranchType::Matched(a) => {
+                        let b = a.deref();
+                        if let (c,d,e) = b{
+                            let s = c.get_koopa();
+                            let s1 = format!("\tbr %{}, %then{}, %else_{}\n",get_reg_idx(&s),
+                                             branch_count, branch_count);
+                            let s2 = format!("%then_{}:\n", branch_count) + &d.get_koopa() +
+                                &format!("\tjump %end_{}\n", branch_count);
+                            let s3 = format!("%else_{}:\n", branch_count) + &e.get_koopa() +
+                                &format!("\tjump %end_{}\n", branch_count);
+                            s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
+                        } else {
+                            unreachable!()
+                        }
+                    },
+                    BranchType::UnMatched(a) => {
+                        let b = a.deref();
+                        if let (c, d, Some(e)) = b{
+                            let s = c.get_koopa();
+                            let s1 = format!("\tbr %{}, %then_{}, %else_{}\n",get_reg_idx(&s),
+                                             branch_count, branch_count);
+                            let s2 = format!("%then_{}:\n", branch_count) + &d.get_koopa()
+                                             + &format!("\tjump %end_{}\n", branch_count);
+                            let s3 = format!("%else_{}:\n", branch_count) + &e.get_koopa()
+                                             + &format!("\tjump %end_{}\n", branch_count);
+                            s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
+                        } else if let (c, d, None) = b{
+                            let s = c.get_koopa();
+                            let s1 = format!("\tbr %{}, %then_{}\n",get_reg_idx(&s),
+                                             branch_count) + &format!("\tjump \
+                                             %end_{}\n", branch_count);
+                            let s2 = format!("%then_{}:\n",branch_count) + &d.get_koopa()
+                                        + &format!("\tjump %end_{}\n", branch_count);
+                            s + &s1 + &s2 + &format!("%end_{}:\n",branch_count)
+                        } else {
+                            unreachable!()
+                        }
+                    }
+                    _ => unreachable!()
+                }
+            }
+            _ => unreachable!()
         }
     }
 }
@@ -436,16 +491,17 @@ impl GetKoopa for LAndExp{
                     if let Ok(e) = a_string.parse::<i32>(){
                         let s1 = format!("\t%{} = ne 0, {}\n",e_reg, e);
                         let s2 = format!("\t%{} = ne 0, {}\n",d_reg, d);
-                        s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx, operation,e_reg, d_reg) }
+                        land_code_gen(e_reg, d_reg, s1, s2)
+                    }
                     else {
                         let s1 = format!("\t%{} = ne 0, %{}\n",e_reg, a_reg_idx);
                         let s2 = format!("\t%{} = ne 0, {}\n",d_reg, d);
                         let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                         let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                         if let Some(_) = g.exist_var_symbol(&a_string){
-                            s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
-                        } else {
-                            a_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
+                            land_code_gen(e_reg, d_reg, s1, s2) } else {
+                            let s1_string = a_string + &s1;
+                            land_code_gen(e_reg, d_reg, s1_string, s2)
                         }
                     }
                 } else {
@@ -455,9 +511,10 @@ impl GetKoopa for LAndExp{
                         let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                         let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                         if let Some(_) = g.exist_var_symbol(&c_string){
-                            s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
+                            land_code_gen(e_reg, d_reg, s1, s2)
                         } else {
-                            c_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
+                            let s2_string = c_string + &s1;
+                            land_code_gen(e_reg, d_reg, s1, s2_string)
                         }
                     } else {
                         let s1 = format!("\t%{} = ne 0, %{}\n",e_reg, a_reg_idx);
@@ -466,19 +523,19 @@ impl GetKoopa for LAndExp{
                         let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                         if let Some(_) = g.exist_var_symbol(&c_string){
                             if let Some(_) = g.exist_var_symbol(&a_string){
-                                s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
-                                                     e_reg, d_reg)
+                                land_code_gen(e_reg, d_reg, s1, s2)
                             } else {
-                                a_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
-                                                                e_reg, d_reg)
+                                let s1_string = a_string + &s1;
+                                land_code_gen(e_reg, d_reg, s1_string, s2)
                             }
                         } else {
                             if let Some(_) = g.exist_var_symbol(&a_string){
-                                c_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
-                                                                 e_reg, d_reg)
+                                let s2_string = c_string + &s1;
+                                land_code_gen(e_reg, d_reg, s1, s2_string)
                             } else {
-                                a_string + &c_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
-                                                                            e_reg, d_reg)
+                                let s1_string = a_string + &s1;
+                                let s2_string = c_string + &s1;
+                                land_code_gen(e_reg, d_reg, s1_string, s2_string)
                             }
                         }
                     }
@@ -503,21 +560,21 @@ impl GetKoopa for LOrExp{
                 let c_reg_idx = get_reg_idx(&c_string);
                 let e_reg = add_reg_idx();
                 let d_reg = add_reg_idx();
-                let reg_idx = add_reg_idx();
                 if let Ok(d) = c_string.parse::<i32>(){
                     if let Ok(e) = a_string.parse::<i32>(){
                         let s1 = format!("\t%{} = ne 0, {}\n",e_reg, e);
                         let s2 = format!("\t%{} = ne 0, {}\n",d_reg, d);
-                        s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx, operation,e_reg, d_reg)
-                    } else {
+                        lor_code_gen(e_reg, d_reg, s1, s2)
+                    }
+                    else {
                         let s1 = format!("\t%{} = ne 0, %{}\n",e_reg, a_reg_idx);
                         let s2 = format!("\t%{} = ne 0, {}\n",d_reg, d);
                         let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                         let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                         if let Some(_) = g.exist_var_symbol(&a_string){
-                            s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
-                        } else {
-                            a_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
+                            lor_code_gen(e_reg, d_reg, s1, s2) } else {
+                            let s1_string = a_string + &s1;
+                            lor_code_gen(e_reg, d_reg, s1_string, s2)
                         }
                     }
                 } else {
@@ -527,9 +584,10 @@ impl GetKoopa for LOrExp{
                         let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                         let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                         if let Some(_) = g.exist_var_symbol(&c_string){
-                            s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
+                            lor_code_gen(e_reg, d_reg, s1, s2)
                         } else {
-                            c_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
+                            let s2_string = c_string + &s1;
+                            lor_code_gen(e_reg, d_reg, s1, s2_string)
                         }
                     } else {
                         let s1 = format!("\t%{} = ne 0, %{}\n",e_reg, a_reg_idx);
@@ -538,23 +596,79 @@ impl GetKoopa for LOrExp{
                         let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                         if let Some(_) = g.exist_var_symbol(&c_string){
                             if let Some(_) = g.exist_var_symbol(&a_string){
-                                s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
-                                                    e_reg, d_reg)
+                                lor_code_gen(e_reg, d_reg, s1, s2)
                             } else {
-                                a_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
-                                                                e_reg, d_reg)
+                                let s1_string = a_string + &s1;
+                                lor_code_gen(e_reg, d_reg, s1_string, s2)
                             }
                         } else {
                             if let Some(_) = g.exist_var_symbol(&a_string){
-                                c_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
-                                                                e_reg, d_reg)
+                                let s2_string = c_string + &s1;
+                                lor_code_gen(e_reg, d_reg, s1, s2_string)
                             } else {
-                                a_string + &c_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
-                                                                            e_reg, d_reg)
+                                let s1_string = a_string + &s1;
+                                let s2_string = c_string + &s1;
+                                lor_code_gen(e_reg, d_reg, s1_string, s2_string)
                             }
                         }
                     }
                 }
+                // if let Ok(d) = c_string.parse::<i32>(){
+                //     if let Ok(e) = a_string.parse::<i32>(){
+                //         let s1 = format!("\t%{} = ne 0, {}\n",e_reg, e);
+                //         let s2 = format!("\t%{} = ne 0, {}\n",d_reg, d);
+                //         let reg_idx = add_reg_idx();
+                //         s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx, operation,e_reg, d_reg)
+                //     } else {
+                //         let branch_count = add_branch_count();
+                //         let s1 = format!("\t%{} = ne 0, %{}\n",e_reg, a_reg_idx);
+                //         let s2 = format!("\t%{} = ne 0, {}\n",d_reg, d);
+                //         let s3 =  format!("\tbr %{}, %then_{}", e_reg, branch_count);
+                //         let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                //         let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
+                //         if let Some(_) = g.exist_var_symbol(&a_string){
+                //             s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
+                //         } else {
+                //             let s4 = format!("%then_{}\n", branch_count);
+                //             a_string + &s1 + &s3 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,
+                //                                              operation, e_reg, d_reg)
+                //         }
+                //     }
+                // } else {
+                //     if let Ok(e) = a_string.parse::<i32>(){
+                //         let s1 = format!("\t%{} = ne 0, {}\n",e_reg, e);
+                //         let s2 = format!("\t%{} = ne 0, %{}\n",d_reg, c_reg_idx);
+                //         let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                //         let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
+                //         if let Some(_) = g.exist_var_symbol(&c_string){
+                //             s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
+                //         } else {
+                //             c_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation, e_reg, d_reg)
+                //         }
+                //     } else {
+                //         let s1 = format!("\t%{} = ne 0, %{}\n",e_reg, a_reg_idx);
+                //         let s2 = format!("\t%{} = ne 0, %{}\n",d_reg, c_reg_idx);
+                //         let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                //         let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
+                //         if let Some(_) = g.exist_var_symbol(&c_string){
+                //             if let Some(_) = g.exist_var_symbol(&a_string){
+                //                 s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
+                //                                     e_reg, d_reg)
+                //             } else {
+                //                 a_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
+                //                                                 e_reg, d_reg)
+                //             }
+                //         } else {
+                //             if let Some(_) = g.exist_var_symbol(&a_string){
+                //                 c_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
+                //                                                 e_reg, d_reg)
+                //             } else {
+                //                 a_string + &c_string + &s1 + &s2 + &format!("\t%{} = {} %{}, %{}\n", reg_idx,operation,
+                //                                                             e_reg, d_reg)
+                //             }
+                //         }
+                //     }
+                // }
             } else {
                 "ParserError".to_string()
             }
