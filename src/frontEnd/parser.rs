@@ -27,6 +27,15 @@ pub fn check_return(s:String, branch_count: i32) -> String{
         return s + &format!("\tjump %end_{}\n", branch_count)
     }
 }
+pub fn is_jump(s: &String) -> bool{
+    let a = s.split("\n").collect::<Vec<&str>>();
+    let b = a[a.len()-2].split(" ").collect::<Vec<&str>>();
+    if b.len() >= 2 && b[0] == "\tjump"{
+        true
+    } else {
+        false
+    }
+}
 pub fn alloc_reg_for_const(s: String) -> String{
     if let Ok(i) = s.parse::<i32>(){
         format!("\t%{} = ne 0, {}\n", add_reg_idx(), i)
@@ -149,8 +158,19 @@ impl GetKoopa for Block {
 impl GetKoopa for Vec<BlockItem>{
     fn get_koopa(&self) -> String {
         let mut s = "".to_string();
+        let mut first = true;
         for v in self{
-            s += &v.get_koopa();
+            let s1 = v.get_koopa();
+            if is_jump(&s1){
+                if first{
+                    first = false;
+                    s += &s1;
+                } else {
+                    break;
+                }
+            } else {
+                s += &s1;
+            }
         }
         s
     }
