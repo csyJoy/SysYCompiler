@@ -16,6 +16,8 @@ use crate::frontEnd::ir_marco::{lor_code_gen, land_code_gen};
 
 lazy_static!{
     static ref global_branch_count:Arc<Mutex<RefCell<i32>>> = Arc::new(Mutex::new(RefCell::new(1)));
+    static ref global_return_switch:Arc<Mutex<RefCell<bool>>> = Arc::new(Mutex::new(RefCell::new
+        (true)));
 }
 
 pub fn check_return(s:String, branch_count: i32) -> String{
@@ -27,15 +29,7 @@ pub fn check_return(s:String, branch_count: i32) -> String{
         return s + &format!("\tjump %end_{}\n", branch_count)
     }
 }
-pub fn is_return(s: &String) -> bool{
-    let a = s.split("\n").collect::<Vec<&str>>();
-    let b = a[a.len()-3].split(" ").collect::<Vec<&str>>();
-    if b.len() >= 2 && b[2] == "@result"{
-        true
-    } else {
-        false
-    }
-}
+
 pub fn alloc_reg_for_const(s: String) -> String{
     if let Ok(i) = s.parse::<i32>(){
         format!("\t%{} = ne 0, {}\n", add_reg_idx(), i)
@@ -150,6 +144,9 @@ impl GetKoopa for Block {
             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
             let mut g = m.borrow_mut().get_mut();
             g.deallocate_symbol_table();
+            let mut o = global_return_switch.lock().unwrap();
+            let mut q = o.get_mut();
+            *q = true;
         }
         return s;
     }
@@ -160,17 +157,18 @@ impl GetKoopa for Vec<BlockItem>{
         let mut s = "".to_string();
         let mut first = true;
         for v in self{
+
             let s1 = v.get_koopa();
-            if is_return(&s1){
-                if first{
-                    first = false;
-                    s += &s1;
-                } else {
-                    break;
-                }
-            } else {
-                s += &s1;
-            }
+            // if is_return(&s1){
+            //     if first{
+            //         first = false;
+            //         s += &s1;
+            //     } else {
+            //         break;
+            //     }
+            // } else {
+            s += &s1;
+            // }
         }
         s
     }
@@ -191,101 +189,138 @@ impl GetKoopa for BlockItem{
 
 impl GetKoopa for Stmt{
     fn get_koopa(&self) -> String {
-        match &self.stmt_type{
-            StmtType::Return(exp) => {
-                let a = exp.eval_const();
-                if let Some(Value::Int(i)) = a{
-                    return format!("\tstore {}, @result\n\tjump %end\n", i);
-                } else {
-                    let exp_string = exp.get_koopa();
-                    let exp_reg_idx = get_reg_idx(&exp_string);
-                    if let Ok(c) = exp_string.parse::<i32>(){
-                        return format!("\tstore {}, @result\n\tjump %end\n", c);
+        let mut o = global_return_switch.lock().unwrap();
+        let mut q = o.get_mut();
+        if *q {
+            std::mem::drop(o);
+            match &self.stmt_type{
+                StmtType::Return(exp) => {
+                    let mut o = global_return_switch.lock().unwrap();
+                    let mut q = o.get_mut();
+                    *q = false;
+                    let a = exp.eval_const();
+                    if let Some(Value::Int(i)) = a{
+                        return format!("\tstore {}, @result\n\tjump %end\n", i);
                     } else {
-                        exp_string + &format!("\tstore %{}, @result\n\tjump %end\n", exp_reg_idx)
+                        let exp_string = exp.get_koopa();
+                        let exp_reg_idx = get_reg_idx(&exp_string);
+                        if let Ok(c) = exp_string.parse::<i32>(){
+                            return format!("\tstore {}, @result\n\tjump %end\n", c);
+                        } else {
+                            exp_string + &format!("\tstore %{}, @result\n\tjump %end\n", exp_reg_idx)
+                        }
                     }
                 }
-            }
-            StmtType::Assign((ident, exp)) => {
-                let s2 = exp.get_koopa();
-                if let Ok(i) = s2.parse::<i32>(){
-                    let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                    let mut g = &m.borrow_mut().get_mut().now_symbol.as_ref().unwrap();
-                    let mut go = g.lock().unwrap();
-                    let unique_name = format!("{}_{}",ident.ident, go.exist_var_symbol(&ident
-                        .ident).unwrap());
-                    format!("\tstore {}, @{}\n",i, unique_name)
-                } else {
-                    let mut unique_name = "".to_string();
-                    {
+                StmtType::Assign((ident, exp)) => {
+                    let s2 = exp.get_koopa();
+                    if let Ok(i) = s2.parse::<i32>(){
                         let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                         let mut g = &m.borrow_mut().get_mut().now_symbol.as_ref().unwrap();
                         let mut go = g.lock().unwrap();
-                        unique_name = format!("{}_{}", ident.ident, go.exist_var_symbol(&ident
+                        let unique_name = format!("{}_{}",ident.ident, go.exist_var_symbol(&ident
                             .ident).unwrap());
+                        format!("\tstore {}, @{}\n",i, unique_name)
+                    } else {
+                        let mut unique_name = "".to_string();
+                        {
+                            let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                            let mut g = &m.borrow_mut().get_mut().now_symbol.as_ref().unwrap();
+                            let mut go = g.lock().unwrap();
+                            unique_name = format!("{}_{}", ident.ident, go.exist_var_symbol(&ident
+                                .ident).unwrap());
+                        }
+                        let s3 = format!("\tstore %{}, @{}\n",get_reg_idx(&s2), unique_name);
+                        s2 + &s3
                     }
-                    let s3 = format!("\tstore %{}, @{}\n",get_reg_idx(&s2), unique_name);
-                    s2 + &s3
                 }
-            }
-            StmtType::StmtBlock(block) => {
-                block.get_koopa()
-            }
-            StmtType::Exp(exp) => { if let Some(e) = exp{
+                StmtType::StmtBlock(block) => {
+                    block.get_koopa()
+                }
+                StmtType::Exp(exp) => { if let Some(e) = exp{
                     e.get_koopa()
                 } else {
                     "".to_string()
                 }
-            }
-            StmtType::Branch(branch) => {
-                let branch_count = add_branch_count();
-                match branch{
-                    BranchType::Matched(a) => {
-                        let b = a.deref();
-                        if let (c,d,e) = b{
-                            let s = alloc_reg_for_const(c.get_koopa());
-                            let s1 = format!("\tbr %{}, %then_{}, %else_{}\n",get_reg_idx(&s),
-                                             branch_count, branch_count);
-                            let s2 = check_return(format!("%then_{}:\n", branch_count) +
-                                &alloc_reg_for_const(d
-                                .get_koopa()), branch_count);
-                            let s3 = check_return(format!("%else_{}:\n", branch_count) + &alloc_reg_for_const
-                                (e.get_koopa()),branch_count);
-                            s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
-                        } else {
-                            unreachable!()
-                        }
-                    },
-                    BranchType::UnMatched(a) => {
-                        let b = a.deref();
-                        if let (c, d, Some(e)) = b{
-                            let s = alloc_reg_for_const(c.get_koopa());
-                            let s1 = format!("\tbr %{}, %then_{}, %else_{}\n",  get_reg_idx(&s),
-                                             branch_count, branch_count);
-                            let s2 = check_return(format!("%then_{}:\n", branch_count) +
-                                                      &alloc_reg_for_const(d
-                                                          .get_koopa()), branch_count);
-                            let s3 = check_return(format!("%else_{}:\n", branch_count) + &alloc_reg_for_const
-                                (e.get_koopa()),branch_count);
-                            s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
-                        } else if let (c, d, None) = b{
-                            let s = alloc_reg_for_const(c.get_koopa());
-                            let s1 = format!("\tbr %{}, %then_{}, %else_{}\n",get_reg_idx(&s),
-                                             branch_count, branch_count) ;
-                            let s2 = check_return(format!("%then_{}:\n", branch_count) +
-                                                      &alloc_reg_for_const(d
-                                                          .get_koopa()), branch_count);
-                            let s3 = check_return(format!("%else_{}:\n", branch_count),branch_count);
-                            s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
-                        } else {
-                            unreachable!()
-                        }
-                    }
-                    _ => unreachable!()
                 }
+                StmtType::Branch(branch) => {
+                    let branch_count = add_branch_count();
+                    match branch{
+                        BranchType::Matched(a) => {
+                            let b = a.deref();
+                            if let (c,d,e) = b{
+                                let s = alloc_reg_for_const(c.get_koopa());
+                                let s1 = format!("\tbr %{}, %then_{}, %else_{}\n",get_reg_idx(&s),
+                                                 branch_count, branch_count);
+                                let s2 = check_return(format!("%then_{}:\n", branch_count) +
+                                                          &alloc_reg_for_const(d
+                                                              .get_koopa()), branch_count);
+                                {
+                                    let mut o = global_return_switch.lock().unwrap();
+                                    let mut q = o.get_mut();
+                                    *q = true;
+                                }
+                                let s3 = check_return(format!("%else_{}:\n", branch_count) + &alloc_reg_for_const
+                                    (e.get_koopa()),branch_count);
+                                {
+                                    let mut o = global_return_switch.lock().unwrap();
+                                    let mut q = o.get_mut();
+                                    *q = true;
+                                }
+                                s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
+                            } else {
+                                unreachable!()
+                            }
+                        },
+                        BranchType::UnMatched(a) => {
+                            let b = a.deref();
+                            if let (c, d, Some(e)) = b{
+                                let s = alloc_reg_for_const(c.get_koopa());
+                                let s1 = format!("\tbr %{}, %then_{}, %else_{}\n",  get_reg_idx(&s),
+                                                 branch_count, branch_count);
+
+                                let s2 = check_return(format!("%then_{}:\n", branch_count) +
+                                                          &alloc_reg_for_const(d
+                                                              .get_koopa()), branch_count);
+                                {
+                                    let mut o = global_return_switch.lock().unwrap();
+                                    let mut q = o.get_mut();
+                                    *q = true;
+                                }
+                                let s3 = check_return(format!("%else_{}:\n", branch_count) + &alloc_reg_for_const
+                                    (e.get_koopa()),branch_count);
+                                {
+                                    let mut o = global_return_switch.lock().unwrap();
+                                    let mut q = o.get_mut();
+                                    *q = true;
+                                }
+                                s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
+                            } else if let (c, d, None) = b{
+                                let s = alloc_reg_for_const(c.get_koopa());
+                                let s1 = format!("\tbr %{}, %then_{}, %else_{}\n",get_reg_idx(&s),
+                                                 branch_count, branch_count) ;
+                                let s2 = check_return(format!("%then_{}:\n", branch_count) +
+                                                          &alloc_reg_for_const(d
+                                                              .get_koopa()), branch_count);
+                                {
+                                    let mut o = global_return_switch.lock().unwrap();
+                                    let mut q = o.get_mut();
+                                    *q = true;
+                                }
+                                let s3 = check_return(format!("%else_{}:\n", branch_count),branch_count);
+                                s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
+                            } else {
+                                unreachable!()
+                            }
+                        }
+                        _ => unreachable!()
+                    }
+                }
+                _ => unreachable!()
             }
-            _ => unreachable!()
+        } else {
+            "".to_string()
         }
+
     }
 }
 
