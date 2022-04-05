@@ -108,10 +108,13 @@ impl GenerateAsm for FunctionData{
         for (&bb, node) in self.layout().bbs(){
             if let Some(data) = self.dfg().bbs().get(&bb){
                 if let Some(a) = &data.name(){
+                    let k = a.to_string();
+                    let len = k.len();
+                    let kk = k[1..len].to_string();
                     if a == "%entry"{
                         s += ""
                     } else {
-                        s += &format!("{}:\n", a);
+                        s += &format!("{}:\n", kk);
                     }
                 }
             }
@@ -350,14 +353,16 @@ impl splitGen for FunctionData {
         *s +=  &format!("\tlw t{}, {}(sp)\n",reg_idx, offset);
         if let Some(then_data) = self.dfg().bbs().get(&then_branch){
             if let Some(then_name) = then_data.name(){
-                *s += &format!("\tbnez t{}, {}\n", reg_idx, then_name);
+                let kk = then_name.to_string()[1..then_name.len()].to_string();
+                *s += &format!("\tbnez t{}, {}\n", reg_idx, kk);
             }
         } else {
             unreachable!()
         }
         if let Some(else_data) = self.dfg().bbs().get(&else_branch){
             if let Some(else_name) = else_data.name(){
-                *s += &format!("\tj {}\n\n", else_name);
+                let kk = else_name.to_string()[1..else_name.len()].to_string();
+                *s += &format!("\tj {}\n\n", kk);
             }
         } else {
             unreachable!()
@@ -367,7 +372,8 @@ impl splitGen for FunctionData {
         let target = jump.target();
         if let Some(bd) = self.dfg().bbs().get(&target){
             if let Some(name) = bd.name(){
-                *s += &format!("\tj {}\n\n", name);
+                let kk = name.to_string()[1..name.len()].to_string();
+                *s += &format!("\tj {}\n\n", kk);
             }
         }
     }
