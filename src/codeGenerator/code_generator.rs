@@ -1,5 +1,5 @@
 //use koopa::ir::{BinaryOp, FunctionData, Program, Value, ValueKind};
-use koopa::ir::values::{Binary, Return, BinaryOp, Alloc, Store, Load};
+use koopa::ir::values::{Binary, Return, BinaryOp, Alloc, Store, Load, Branch, Jump};
 use lazy_static::lazy_static;
 use std::sync::Mutex;
 use std::cell::RefCell;
@@ -106,6 +106,15 @@ impl GenerateAsm for FunctionData{
         let sp = calculate_and_allocate_space(self);
         s += &format!("\taddi sp, sp, -{}\n",sp);
         for (&bb, node) in self.layout().bbs(){
+            if let Some(data) = self.dfg().bbs().get(&bb){
+                if let Some(a) = &data.name(){
+                    if a == "%entry"{
+                        s += ""
+                    } else {
+                        s += &format!("{}:\n", a);
+                    }
+                }
+            }
             for &inst in node.insts().keys(){
                 let value_data = self.dfg().value(inst);
                 match value_data.kind(){
@@ -134,12 +143,25 @@ impl GenerateAsm for FunctionData{
                     ValueKind::Alloc(alloc) => {
                         self.alloc_gen(&mut s, alloc, inst);
                     }
+                    ValueKind::Branch(branch) => {
+                        self.branch_gen(&mut s, branch, inst);
+                    }
+                    ValueKind::Jump(jump) => {
+                        self.jump_gen(&mut s, jump, inst);
+                    }
                     _ => unreachable!(),
                 }
             }
+            if let Some(data) = self.dfg().bbs().get(&bb){
+                if let Some(a) = &data.name(){
+                    if a == "%end"{
+                        s += &format!("\taddi sp, sp, {}\n",sp);
+                        s += &format!("\tret\n\n");
+                    }
+                }
+            }
         }
-        s += &format!("\taddi sp, sp, {}\n",sp);
-        s += &format!("\tret\n");
+
         s
     }
 }
@@ -150,6 +172,8 @@ trait splitGen{
     fn alloc_gen(&self, s: &mut String, alloc: &Alloc, value: Value);
     fn load_gen(&self, s: &mut String, alloc: &Load, value: Value);
     fn store_gen(&self, s: &mut String, alloc: &Store, value: Value);
+    fn branch_gen(&self, s: &mut String, branch: &Branch, value: Value);
+    fn jump_gen(&self, s: &mut String, jump: &Jump, value: Value);
 }
 impl splitGen for FunctionData {
     fn return_gen(&self, s: &mut String, ret: &Return, value: Value) {
@@ -315,5 +339,36 @@ impl splitGen for FunctionData {
     }
     fn alloc_gen(&self, s: &mut String, alloc: &Alloc, value: Value) {
         global_reg_allocator.lock().unwrap().get_mut().bound_space(value);
+    }
+    fn branch_gen(&self, s: &mut String, branch: &Branch, value: Value) {
+        let cond = branch.cond();
+        let then_branch = branch.true_bb();
+        let else_branch = branch.false_bb();
+        let g = global_reg_allocator.lock().unwrap();
+        let offset = g.borrow_mut().get_space(cond).unwrap();
+        let reg_idx = g.borrow_mut().alloc_reg().unwrap();
+        *s +=  &format!("\tlw t{}, {}(sp)\n",reg_idx, offset);
+        if let Some(then_data) = self.dfg().bbs().get(&then_branch){
+            if let Some(then_name) = then_data.name(){
+                *s += &format!("\tbnez t{}, {}\n", reg_idx, then_name);
+            }
+        } else {
+            unreachable!()
+        }
+        if let Some(else_data) = self.dfg().bbs().get(&else_branch){
+            if let Some(else_name) = else_data.name(){
+                *s += &format!("\tj {}\n\n", else_name);
+            }
+        } else {
+            unreachable!()
+        }
+    }
+    fn jump_gen(&self, s: &mut String, jump: &Jump, value: Value) {
+        let target = jump.target();
+        if let Some(bd) = self.dfg().bbs().get(&target){
+            if let Some(name) = bd.name(){
+                *s += &format!("\tj {}\n\n", name);
+            }
+        }
     }
 }
