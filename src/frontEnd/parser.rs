@@ -54,6 +54,16 @@ pub fn check_return(s:String, branch_count: i32) -> String{
     }
 }
 
+pub fn is_return(s:&String) -> bool{
+    let a = s.split("\n").collect::<Vec<&str>>();
+    let b = a[a.len()-2].split(" ").collect::<Vec<&str>>();
+    if b.len() >= 2 && b[1] == "%end"{
+        true
+    } else {
+        false
+    }
+}
+
 pub fn alloc_reg_for_const(s: String) -> String{
     if let Ok(i) = s.parse::<i32>(){
         format!("\t%{} = ne 0, {}\n", add_reg_idx(), i)
@@ -372,7 +382,9 @@ impl GetKoopa for Stmt{
                     }
                     let mut while_body = format!("%while_body_{}:\n", branch_count);
                     while_body += &stmt.get_koopa();
-                    while_body += &format!("\tjump %while_entry_{}\n", branch_count);
+                    if !is_return(&while_body){
+                        while_body += &format!("\tjump %while_entry_{}\n", branch_count);
+                    }
                     while_body += &format!("%end_{}:\n",branch_count);
                     {
                         let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
