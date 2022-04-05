@@ -6,6 +6,7 @@ use std::sync::Mutex;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use koopa::ir::entities::{Value, Program, FunctionData, ValueKind, ValueData};
+use koopa::ir::ValueKind::Integer;
 use crate::frontEnd::GlobalSymbolTableAllocator;
 
 pub trait GenerateAsm{
@@ -65,7 +66,11 @@ impl RegAlloctor for GlobalRegAlloctor{
         self.offset += size;
     }
     fn get_space(&self, value: Value) -> Option<i32> {
-        Some(*self.map.get(&value).unwrap())
+        if let Some(offset) = self.map.get(&value){
+            Some(*offset)
+        } else {
+            None
+        }
     }
 
 }
@@ -351,9 +356,14 @@ impl splitGen for FunctionData {
         let then_branch = branch.true_bb();
         let else_branch = branch.false_bb();
         let g = global_reg_allocator.lock().unwrap();
-        let offset = g.borrow_mut().get_space(cond).unwrap();
         let reg_idx = g.borrow_mut().alloc_reg().unwrap();
-        *s +=  &format!("\tlw t{}, {}(sp)\n",reg_idx, offset);
+        if let Some(offset) = g.borrow_mut().get_space(cond){
+            *s +=  &format!("\tlw t{}, {}(sp)\n",reg_idx, offset);
+        } else if let Integer(i) = self.dfg().value(cond).kind(){
+            *s += &format!("\tlw t{}, {}\n", reg_idx, i.value());
+        } else {
+            unreachable!();
+        }
         if let Some(then_data) = self.dfg().bbs().get(&then_branch){
             if let Some(then_name) = then_data.name(){
                 let kk = then_name.to_string()[1..then_name.len()].to_string();
