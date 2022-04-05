@@ -92,7 +92,9 @@ fn calculate_and_allocate_space(this: &FunctionData) -> i32{
     for (&bb, node) in this.layout().bbs(){
         for &inst in node.insts().keys(){
             let value_data = this.dfg().value(inst);
-            bits += value_data.ty().size() as i32;
+            if !value_data.ty().is_unit(){
+                bits += 4;
+            }
         }
     }
     bits
@@ -328,8 +330,6 @@ impl splitGen for FunctionData {
         let mut m = global_reg_allocator.lock().unwrap();
         let mut g = m.get_mut();
         let reg_idx = g.alloc_reg().unwrap();
-        let size = self.dfg().value(value).ty().size() as i32;
-        g.bound_space(dest, size);
         let offset = g.get_space(dest).unwrap();
         if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
             *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &format!("\tsw t{}, {}(sp)\n",
@@ -343,7 +343,7 @@ impl splitGen for FunctionData {
         g.free_reg(reg_idx);
     }
     fn alloc_gen(&self, s: &mut String, alloc: &Alloc, value: Value) {
-        let size = self.dfg().value(value).ty().size() as i32;
+        let size = 4;
         global_reg_allocator.lock().unwrap().get_mut().bound_space(value, size);
     }
     fn branch_gen(&self, s: &mut String, branch: &Branch, value: Value) {
