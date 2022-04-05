@@ -276,10 +276,6 @@ impl splitGen for FunctionData {
             },
             BinaryOp::Le => {
                 bin_operation = "slt".to_string();
-                *s += &format!("\t{} t{}, {}, {}\n", bin_operation, idx, l_s, r_s);
-            },
-            BinaryOp::Lt => {
-                bin_operation = "slt".to_string();
                 let tmp = r.alloc_reg().unwrap();
                 let tmp1 = r.alloc_reg().unwrap();
                 *s += &format!("\txor t{}, t{}, t{}\n", tmp, tmp_l, tmp_r);
@@ -288,6 +284,10 @@ impl splitGen for FunctionData {
                 *s += &format!("\tor t{}, t{}, t{}\n", idx, tmp, tmp1);
                 r.free_reg(tmp);
                 r.free_reg(tmp1);
+            },
+            BinaryOp::Lt => {
+                bin_operation = "slt".to_string();
+                *s += &format!("\t{} t{}, {}, {}\n", bin_operation, idx, l_s, r_s);
             },
             BinaryOp::Gt => {
                 bin_operation = "slt".to_string();
