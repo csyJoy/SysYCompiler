@@ -57,7 +57,7 @@ pub fn check_return(s:String, branch_count: i32) -> String{
 pub fn is_return(s:&String) -> bool{
     let a = s.split("\n").collect::<Vec<&str>>();
     let b = a[a.len()-2].split(" ").collect::<Vec<&str>>();
-    if b.len() >= 2 && b[1] == "%end"{
+    if b.len() >= 2 && b[0] == "\tjump"{
         true
     } else {
         false
