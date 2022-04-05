@@ -14,13 +14,12 @@ use crate::frontEnd::GLOBAL_SYMBOL_TABLE_ALLOCATOR;
 use crate::frontEnd::REG_INDEX;
 use std::sync::Arc;
 use crate::frontEnd::ir_marco::{lor_code_gen, land_code_gen};
-
 lazy_static!{
     static ref global_branch_count:Arc<Mutex<RefCell<i32>>> = Arc::new(Mutex::new(RefCell::new(1)));
     static ref global_return_switch:Arc<Mutex<RefCell<bool>>> = Arc::new(Mutex::new(RefCell::new
         (true)));
-    static ref global_while_count: Arc<Mutex<RefCell<(i32, i32)>>> = Arc::new(Mutex::new
-        (RefCell::new((1, 0))));
+    static ref global_while_count: Arc<Mutex<RefCell<(Vec<i32>, i32)>>> = Arc::new(Mutex::new
+        (RefCell::new((Vec::new(), 0))));
     static ref global_while_switch:Arc<Mutex<RefCell<bool>>> = Arc::new(Mutex::new(RefCell::new
         (true)));
 }
@@ -28,21 +27,24 @@ pub fn get_while() -> i32{
     let mut g = global_while_count.lock().unwrap();
     let gg = g.borrow_mut().get_mut();
     let (gg, _) = gg;
-    *gg
+    gg[gg.len()-1]
 }
 pub fn record_while(count: i32){
     let mut g = global_while_count.lock().unwrap();
     let gg = g.borrow_mut().get_mut();
     let (while_count, deepth) = gg;
-    *while_count = count;
+    while_count.push(count);
     *deepth  = *deepth + 1;
 }
 pub fn leave_while(){
     let mut g = global_while_count.lock().unwrap();
     let gg = g.borrow_mut().get_mut();
-    let (_, deepth) = gg;
+    let (vec, deepth) = gg;
+    vec.pop();
     *deepth  = *deepth - 1;
 }
+
+
 
 pub fn check_return(s:String, branch_count: i32) -> String{
     let a = s.split("\n").collect::<Vec<&str>>();
