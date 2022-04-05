@@ -303,6 +303,9 @@ impl GetKoopa for Stmt{
                                 {
                                     let mut o = global_return_switch.lock().unwrap();
                                     let mut q = o.get_mut();
+                                    let mut w = global_while_switch.lock().unwrap();
+                                    let mut qq = w.get_mut();
+                                    *qq = true;
                                     *q = true;
                                 }
                                 let s3 = check_return(format!("%else_{}:\n", branch_count) + &alloc_reg_for_const
@@ -311,6 +314,9 @@ impl GetKoopa for Stmt{
                                     let mut o = global_return_switch.lock().unwrap();
                                     let mut q = o.get_mut();
                                     *q = true;
+                                    let mut w = global_while_switch.lock().unwrap();
+                                    let mut qq = w.get_mut();
+                                    *qq = true
                                 }
                                 s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
                             } else {
@@ -331,6 +337,9 @@ impl GetKoopa for Stmt{
                                     let mut o = global_return_switch.lock().unwrap();
                                     let mut q = o.get_mut();
                                     *q = true;
+                                    let mut w = global_while_switch.lock().unwrap();
+                                    let mut qq = w.get_mut();
+                                    *qq = true
                                 }
                                 let s3 = check_return(format!("%else_{}:\n", branch_count) + &alloc_reg_for_const
                                     (e.get_koopa()),branch_count);
@@ -338,6 +347,9 @@ impl GetKoopa for Stmt{
                                     let mut o = global_return_switch.lock().unwrap();
                                     let mut q = o.get_mut();
                                     *q = true;
+                                    let mut w = global_while_switch.lock().unwrap();
+                                    let mut qq = w.get_mut();
+                                    *qq = true
                                 }
                                 s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
                             } else if let (c, d, None) = b{
@@ -351,6 +363,9 @@ impl GetKoopa for Stmt{
                                     let mut o = global_return_switch.lock().unwrap();
                                     let mut q = o.get_mut();
                                     *q = true;
+                                    let mut w = global_while_switch.lock().unwrap();
+                                    let mut qq = w.get_mut();
+                                    *qq = true
                                 }
                                 let s3 = check_return(format!("%else_{}:\n", branch_count),branch_count);
                                 s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
