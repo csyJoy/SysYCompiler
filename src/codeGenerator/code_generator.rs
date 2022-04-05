@@ -254,8 +254,8 @@ impl splitGen for FunctionData {
             },
             BinaryOp::Eq => {
                 let tmp = r.alloc_reg().unwrap();
-                *s += &format!("\txor t{}, {}, {}\n", tmp, tmp_l, tmp_r);
-                *s += &format!("\tseqz t{}, {}\n", idx, tmp);
+                *s += &format!("\txor t{}, t{}, t{}\n", tmp, tmp_l, tmp_r);
+                *s += &format!("\tseqz t{}, t{}\n", idx, tmp);
                 r.free_reg(tmp);
             },
             BinaryOp::And => {
@@ -268,8 +268,8 @@ impl splitGen for FunctionData {
             },
             BinaryOp::NotEq => {
                 let tmp = r.alloc_reg().unwrap();
-                *s += &format!("\txor t{}, {}, {}\n", tmp, tmp_l, tmp_r);
-                *s += &format!("\tsnez t{}, {}\n", idx, tmp);
+                *s += &format!("\txor t{}, t{}, t{}\n", tmp, tmp_l, tmp_r);
+                *s += &format!("\tsnez t{}, t{}\n", idx, tmp);
                 r.free_reg(tmp);
             },
             BinaryOp::Le => {
@@ -280,8 +280,8 @@ impl splitGen for FunctionData {
                 bin_operation = "slt".to_string();
                 let tmp = r.alloc_reg().unwrap();
                 let tmp1 = r.alloc_reg().unwrap();
-                *s += &format!("\txor t{}, {}, {}\n", tmp, tmp_l, tmp_r);
-                *s += &format!("\tseqz t{}, {}\n", idx, tmp);
+                *s += &format!("\txor t{}, t{}, t{}\n", tmp, tmp_l, tmp_r);
+                *s += &format!("\tseqz t{}, t{}\n", idx, tmp);
                 *s += &format!("\t{} t{}, {}, {}\n", bin_operation, tmp1, l_s, r_s);
                 *s += &format!("\tor t{}, t{}, t{}\n", idx, tmp, tmp1);
                 r.free_reg(tmp);
@@ -295,8 +295,8 @@ impl splitGen for FunctionData {
                 bin_operation = "slt".to_string();
                 let tmp = r.alloc_reg().unwrap();
                 let tmp1 = r.alloc_reg().unwrap();
-                *s += &format!("\txor t{}, {}, {}\n", tmp, tmp_l, tmp_r);
-                *s += &format!("\tseqz t{}, {}\n", idx, tmp);
+                *s += &format!("\txor t{}, t{}, t{}\n", tmp, tmp_l, tmp_r);
+                *s += &format!("\tseqz t{}, t{}\n", idx, tmp);
                 *s += &format!("\t{} t{}, {}, {}\n", bin_operation, tmp1, r_s, l_s);
                 *s += &format!("\tor t{}, t{}, t{}\n", idx, tmp, tmp1);
                 r.free_reg(tmp);
