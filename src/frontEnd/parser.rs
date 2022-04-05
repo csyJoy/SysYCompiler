@@ -363,9 +363,8 @@ impl GetKoopa for Stmt{
                     let mut while_entry = format!("%while_entry_{}:\n",branch_count);
                     let exp_code = exp.get_koopa();
                     if let Ok(i) = exp_code.parse::<i32>() {
-                        while_entry += &format!("\tli %{}, {}\n",add_reg_idx(), i);
-                        while_entry += &format!("\tbr %{}, %while_body_{}, %end_{}\n",get_reg_idx
-                            (&while_entry), branch_count, branch_count);
+                        while_entry += &format!("\tbr {}, %while_body_{}, %end_{}\n", i
+                            , branch_count, branch_count);
                     } else {
                         while_entry += &exp_code;
                         while_entry += &format!("\tbr %{}, %while_body_{}, %end_{}\n", get_reg_idx
