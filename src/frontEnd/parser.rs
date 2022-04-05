@@ -151,8 +151,17 @@ impl GetKoopa for FuncDef{
         ("{{\n%entry:\n\t@result = alloc i32\n") + &self
         .block.get_koopa();
         let idx = add_reg_idx();
-        let s  = &format!("%end:\n\t%{} = load @result\n\tret %{}\n}}\n", idx, idx);
-        s1 + s
+        let sv = s1.split("\n").collect::<Vec<&str>>();
+        let len = (sv.len() - 2) as usize;
+        let c = sv[len].chars().nth(0).unwrap();
+        if c == '%'{
+            let s  = &format!("\tjump %end\n%end:\n\t%{} = load @result\n\tret %{}\n}}\n", idx,
+                              idx);
+            s1 + s
+        } else {
+            let s  = &format!("%end:\n\t%{} = load @result\n\tret %{}\n}}\n", idx, idx);
+            s1 + s
+        }
     }
 }
 
