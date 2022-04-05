@@ -42,7 +42,10 @@ MatchedStmt: Stmt = {
     <block :Block> => Stmt{ stmt_type: StmtType::StmtBlock(<>) },
     "if" "(" <exp: Exp> ")" <then: MatchedStmt> "else" <else_then: MatchedStmt> => Stmt{stmt_type: StmtType::Branch(
     BranchType::Matched(Box::new((exp, then, else_then))))},
+    "while" "(" <exp: Exp> ")" <stmt: MatchedStmt> => Stmt{ stmt_type: StmtType::While(Box::new((<>)))},
     "return" <exp: Exp> ";" => Stmt { stmt_type: StmtType::Return(<>) },
+    "break" ";" => Stmt{stmt_type: StmtType::Break},
+    "continue" ";" => Stmt{stmt_type: StmtType::Continue}
 }
 OpenStmt: Stmt = {
     "if" "(" <exp: Exp> ")" <then: Stmt> => Stmt{stmt_type: StmtType::Branch(
@@ -50,6 +53,7 @@ OpenStmt: Stmt = {
     "if" "(" <exp: Exp> ")" <then: MatchedStmt> "else" <else_then: OpenStmt> => Stmt{stmt_type: StmtType::Branch(
                                                                                BranchType::UnMatched(Box::new((exp,
                                                                                then, Some(else_then)))))},
+    "while" "(" <exp: Exp> ")" <stmt: OpenStmt> => Stmt{ stmt_type: StmtType::While(Box::new((<>)))},
 }
 
 

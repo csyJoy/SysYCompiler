@@ -49,7 +49,10 @@ pub enum StmtType{
     Assign((Lval, Exp)),
     StmtBlock(Block),
     Exp(Option<Exp>),
-    Branch(BranchType)
+    Branch(BranchType),
+    While(Box<(Exp, Stmt)>),
+    Break,
+    Continue
 }
 #[derive(Debug)]
 pub struct Stmt{

@@ -3,6 +3,7 @@ use crate::frontEnd::{ast, symbol_table};
 use crate::frontEnd::ast::{AddExp, AddOperator, Block, BlockItem, BranchType, CompUnit, ConstDecl, ConstDef, ConstExp, ConstInitVal, Decl, EqExp, EqOperation, Exp, FuncDef, FuncType, InitVal, LAndExp, LOrExp, MulExp, MulOperator, PrimaryExp, RelExp, RelOperation, Stmt, StmtType, UnaryExp, UnaryOp, UnaryOperator, VarDecl, VarDef};
 use lazy_static::lazy_static;
 use std::cell::{Ref, RefCell};
+use std::fmt::format;
 use std::mem;
 use std::ops::{Add, Deref, Mul};
 use std::sync::Mutex;
@@ -18,6 +19,29 @@ lazy_static!{
     static ref global_branch_count:Arc<Mutex<RefCell<i32>>> = Arc::new(Mutex::new(RefCell::new(1)));
     static ref global_return_switch:Arc<Mutex<RefCell<bool>>> = Arc::new(Mutex::new(RefCell::new
         (true)));
+    static ref global_while_count: Arc<Mutex<RefCell<(i32, i32)>>> = Arc::new(Mutex::new
+        (RefCell::new((1, 0))));
+    static ref global_while_switch:Arc<Mutex<RefCell<bool>>> = Arc::new(Mutex::new(RefCell::new
+        (true)));
+}
+pub fn get_while() -> i32{
+    let mut g = global_while_count.lock().unwrap();
+    let gg = g.borrow_mut().get_mut();
+    let (gg, _) = gg;
+    *gg
+}
+pub fn record_while(count: i32){
+    let mut g = global_while_count.lock().unwrap();
+    let gg = g.borrow_mut().get_mut();
+    let (while_count, deepth) = gg;
+    *while_count = count;
+    *deepth  = *deepth + 1;
+}
+pub fn leave_while(){
+    let mut g = global_while_count.lock().unwrap();
+    let gg = g.borrow_mut().get_mut();
+    let (_, deepth) = gg;
+    *deepth  = *deepth - 1;
 }
 
 pub fn check_return(s:String, branch_count: i32) -> String{
@@ -190,9 +214,12 @@ impl GetKoopa for BlockItem{
 impl GetKoopa for Stmt{
     fn get_koopa(&self) -> String {
         let mut o = global_return_switch.lock().unwrap();
-        let mut q = o.get_mut();
-        if *q {
-            std::mem::drop(o);
+        let mut q = *o.get_mut();
+        let mut w = global_while_switch.lock().unwrap();
+        let mut qq = *w.get_mut();
+        std::mem::drop(w);
+        std::mem::drop(o);
+        if q && qq {
             match &self.stmt_type{
                 StmtType::Return(exp) => {
                     let mut o = global_return_switch.lock().unwrap();
@@ -314,6 +341,58 @@ impl GetKoopa for Stmt{
                         }
                         _ => unreachable!()
                     }
+                }
+                StmtType::While(while_stmt) => {
+                    let (exp, stmt) = while_stmt.deref();
+                    let branch_count = add_branch_count();
+                    record_while(branch_count);
+                    {
+                        let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                        let g = m.borrow_mut().get_mut().allocate_symbol_table();
+                    }
+                    let preinstructiion = format!("\tjump %while_entry_{}\n",branch_count);
+                    let mut while_entry = format!("%while_entry_{}:\n",branch_count);
+                    let exp_code = exp.get_koopa();
+                    if let Ok(i) = exp_code.parse::<i32>() {
+                        while_entry += &format!("\tli %{}, {}\n",add_reg_idx(), i);
+                        while_entry += &format!("\tbr %{}, %while_body_{}, %end_{}\n",get_reg_idx
+                            (&while_entry), branch_count, branch_count);
+                    } else {
+                        while_entry += &exp_code;
+                        while_entry += &format!("\tbr %{}, %while_body_{}, %end_{}\n", get_reg_idx
+                            (&while_entry), branch_count, branch_count);
+                    }
+                    let mut while_body = format!("%while_body_{}:\n", branch_count);
+                    while_body += &stmt.get_koopa();
+                    while_body += &format!("\tjump %while_entry_{}\n", branch_count);
+                    while_body += &format!("%end_{}:\n",branch_count);
+                    {
+                        let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                        m.borrow_mut().get_mut().deallocate_symbol_table();
+                    }
+                    leave_while();
+                    {
+                        let mut w = global_while_switch.lock().unwrap();
+                        let mut qq = w.get_mut();
+                        *qq = true;
+                    }
+                    preinstructiion + &while_entry + &while_body
+                }
+                StmtType::Break => {
+                    {
+                        let mut w = global_while_switch.lock().unwrap();
+                        let mut qq = w.get_mut();
+                        *qq = false;
+                    }
+                    format!("\tjump %end_{}\n",get_while())
+                }
+                StmtType::Continue => {
+                    {
+                        let mut w = global_while_switch.lock().unwrap();
+                        let mut qq = w.get_mut();
+                        *qq = false;
+                    }
+                    format!("\tjump %while_entry_{}\n",get_while())
                 }
                 _ => unreachable!()
             }
