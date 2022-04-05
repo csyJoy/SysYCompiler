@@ -47,7 +47,7 @@ pub fn leave_while(){
 pub fn check_return(s:String, branch_count: i32) -> String{
     let a = s.split("\n").collect::<Vec<&str>>();
     let b = a[a.len()-2].split(" ").collect::<Vec<&str>>();
-    if b.len() >= 2 && b[1] == "%end"{
+    if b.len() >= 2 && b[0] == "\tjump"{
         return s
     } else {
         return s + &format!("\tjump %end_{}\n", branch_count)
