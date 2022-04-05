@@ -367,6 +367,8 @@ impl splitGen for FunctionData {
         } else {
             unreachable!()
         }
+        *s +=  &format!("\tsw t{}, {}(sp)\n",reg_idx, offset);
+        g.borrow_mut().free_reg(reg_idx);
     }
     fn jump_gen(&self, s: &mut String, jump: &Jump, value: Value) {
         let target = jump.target();
