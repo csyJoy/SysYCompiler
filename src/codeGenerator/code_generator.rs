@@ -1,3 +1,4 @@
+use std::any::Any;
 //use koopa::ir::{BinaryOp, FunctionData, Program, Value, ValueKind};
 use koopa::ir::values::{Binary, Return, BinaryOp, Alloc, Store, Load, Branch, Jump};
 use lazy_static::lazy_static;
@@ -19,7 +20,7 @@ pub trait RegAlloctor{
     #[deprecated]
     fn get_reg(&self, value: Value) -> Option<i32>;
 
-    fn bound_space(&mut self, value: Value);
+    fn bound_space(&mut self, value: Value, size: i32);
     fn get_space(&self, value: Value) -> Option<i32>;
 }
 struct GlobalRegAlloctor{
@@ -59,9 +60,9 @@ impl RegAlloctor for GlobalRegAlloctor{
         self.map.insert(value, idx);
         Some(idx)
     }
-    fn bound_space(&mut self, value: Value){
+    fn bound_space(&mut self, value: Value, size: i32){
         self.map.insert(value, self.offset);
-        self.offset += 4;
+        self.offset += size;
     }
     fn get_space(&self, value: Value) -> Option<i32> {
         Some(*self.map.get(&value).unwrap())
@@ -91,9 +92,7 @@ fn calculate_and_allocate_space(this: &FunctionData) -> i32{
     for (&bb, node) in this.layout().bbs(){
         for &inst in node.insts().keys(){
             let value_data = this.dfg().value(inst);
-            if !value_data.ty().is_unit(){
-                bits = bits + 4;
-            }
+            bits += value_data.ty().size() as i32;
         }
     }
     bits
@@ -202,7 +201,8 @@ impl splitGen for FunctionData {
         let g = global_reg_allocator.lock().unwrap();
         let mut r = g.borrow_mut();
         let idx = r.alloc_reg().unwrap();
-        r.bound_space(value);
+        let size = self.dfg().value(value).ty().size() as i32;
+        r.bound_space(value, size);
         let mut tmp_r:i32 = 0;
         let mut tmp_l:i32 = 0;
         if let ValueKind::Integer(i) = self.dfg().value(r_value).kind(){
@@ -314,7 +314,8 @@ impl splitGen for FunctionData {
         let mut m = global_reg_allocator.lock().unwrap();
         let mut g = m.get_mut();
         let reg_idx = g.alloc_reg().unwrap();
-        g.bound_space(value);
+        let size = self.dfg().value(value).ty().size() as i32;
+        g.bound_space(value, size);
         let offset = g.get_space(value).unwrap();
         let src_offset = g.get_space(src_value).unwrap();
         *s += &(format!("\tlw t{}, {}(sp)\n",reg_idx, src_offset) + &format!("\tsw t{}, {}(sp)\n",
@@ -327,7 +328,8 @@ impl splitGen for FunctionData {
         let mut m = global_reg_allocator.lock().unwrap();
         let mut g = m.get_mut();
         let reg_idx = g.alloc_reg().unwrap();
-        g.bound_space(dest);
+        let size = self.dfg().value(value).ty().size() as i32;
+        g.bound_space(dest, size);
         let offset = g.get_space(dest).unwrap();
         if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
             *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &format!("\tsw t{}, {}(sp)\n",
@@ -341,7 +343,8 @@ impl splitGen for FunctionData {
         g.free_reg(reg_idx);
     }
     fn alloc_gen(&self, s: &mut String, alloc: &Alloc, value: Value) {
-        global_reg_allocator.lock().unwrap().get_mut().bound_space(value);
+        let size = self.dfg().value(value).ty().size() as i32;
+        global_reg_allocator.lock().unwrap().get_mut().bound_space(value, size);
     }
     fn branch_gen(&self, s: &mut String, branch: &Branch, value: Value) {
         let cond = branch.cond();
@@ -367,7 +370,6 @@ impl splitGen for FunctionData {
         } else {
             unreachable!()
         }
-        *s +=  &format!("\tsw t{}, {}(sp)\n",reg_idx, offset);
         g.borrow_mut().free_reg(reg_idx);
     }
     fn jump_gen(&self, s: &mut String, jump: &Jump, value: Value) {
