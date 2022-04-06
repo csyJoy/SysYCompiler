@@ -360,7 +360,7 @@ impl splitGen for FunctionData {
         if let Some(offset) = g.borrow_mut().get_space(cond){
             *s +=  &format!("\tlw t{}, {}(sp)\n",reg_idx, offset);
         } else if let Integer(i) = self.dfg().value(cond).kind(){
-            *s += &format!("\tlw t{}, {}\n", reg_idx, i.value());
+            *s += &format!("\tli t{}, {}\n", reg_idx, i.value());
         } else {
             unreachable!();
         }
