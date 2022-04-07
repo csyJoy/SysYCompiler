@@ -649,8 +649,34 @@ impl GetKoopa for UnaryExp{
                     }
                     _ => "".to_string()
                 }
-            } else if let Some(func_call) = &self.func_call{
-                let ident = ;
+            } else if let Some((ident, params)) = &self.func_call{
+                if let Some(rparams) = params{
+                    let rst = add_reg_idx();
+                    let exp = &rparams.exp;
+                    let mut s = exp.get_koopa();
+                    let mut ss = "".to_string();
+                    let mut pre_call = "".to_string();
+                    if let Ok(i) = s.parse::<i32>() {
+                        ss += &format!("\t%{} = call @{}(", rst, ident);
+                        ss += &format!("{}", i);
+                    } else {
+                        pre_call += &s;
+                        ss += &format!("\t%{} = call @{}(%{}", rst, ident, get_reg_idx(&s));
+                    }
+                    for r in &rparams.exp_vec{
+                        s = r.get_koopa();
+                        if let Ok(i) = s.parse::<i32>() {
+                            ss += &format!(", {}", i);
+                        } else {
+                            pre_call += &s;
+                            ss += &format!(", %{}", get_reg_idx(&s));
+                        }
+                    }
+                    ss += ")\n";
+                    pre_call + &ss
+                } else {
+                    format!("\tcall @{}()", ident)
+                }
             } else {
                 "".to_string()
             }
