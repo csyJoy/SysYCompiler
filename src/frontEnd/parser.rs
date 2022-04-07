@@ -1,6 +1,6 @@
 use std::borrow::{Borrow, BorrowMut};
 use crate::frontEnd::{ast, symbol_table};
-use crate::frontEnd::ast::{AddExp, AddOperator, Block, BlockItem, BranchType, CompUnit, ConstDecl, ConstDef, ConstExp, ConstInitVal, Decl, EqExp, EqOperation, Exp, FuncDef, FuncType, InitVal, LAndExp, LOrExp, MulExp, MulOperator, PrimaryExp, RelExp, RelOperation, Stmt, StmtType, UnaryExp, UnaryOp, UnaryOperator, VarDecl, VarDef};
+use crate::frontEnd::ast::{AddExp, AddOperator, Block, BlockItem, BranchType, BType, CompUnit, ConstDecl, ConstDef, ConstExp, ConstInitVal, Decl, EqExp, EqOperation, Exp, FuncDef, FuncParams, FuncType, GlobalItem, InitVal, LAndExp, LOrExp, MulExp, MulOperator, PrimaryExp, RelExp, RelOperation, Stmt, StmtType, UnaryExp, UnaryOp, UnaryOperator, VarDecl, VarDef};
 use lazy_static::lazy_static;
 use std::cell::{Ref, RefCell};
 use std::fmt::format;
@@ -147,33 +147,163 @@ pub trait GetName{
 
 impl GetKoopa for CompUnit{
     fn get_koopa(&self) -> String {
-        self.func_def.get_koopa()
+        {
+            let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+            let g = m.borrow_mut().get_mut().allocate_symbol_table();
+        }
+        let mut s = "".to_string();
+        for i in &self.items{
+            s += &i.get_koopa();
+        }
+        {
+            let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+            m.borrow_mut().get_mut().deallocate_symbol_table();
+        }
+        s
+    }
+}
+impl GetKoopa for GlobalItem{
+    fn get_koopa(&self) -> String{
+        match &self{
+            GlobalItem::Decl(decl) => {
+                decl.get_koopa()
+            }
+            GlobalItem::FuncDef(func_def) => {
+                func_def.get_koopa()
+            }
+            _ => unreachable!()
+        }
+    }
+}
+impl GetKoopa for FuncParams{
+    fn get_koopa(& self) -> String {
+        let mut ident = &self.param.ident;
+        let mut btype = &self.param.btype;
+        let mut s_type = "".to_string();
+        match btype{
+            BType::Int => {
+                s_type += &format!("%{}:i32", ident);
+            }
+            _ => {unreachable!()}
+        }
+        if !self.params.is_empty(){
+            for i in &self.params{
+                ident = &i.ident;
+                btype = &i.btype;
+                match btype{
+                    BType::Int => {
+                        s_type += &format!(", %{}:i32", ident);
+                    }
+                    _ => {unreachable!()}
+                }
+            }
+        }
+        s_type
+    }
+}
+impl FuncParams{
+    fn alloc_local_var(&self) -> String{
+        let mut ident = &self.param.ident;
+        let mut btype = &self.param.btype;
+        let mut s_type = "".to_string();
+        match btype{
+            BType::Int => {
+                let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                let mut g = m.borrow_mut().get_mut().allocate_symbol_table();
+                let mut S = g.lock().unwrap();
+                S.insert_var_symbol((&ident).to_string(),None);
+                let s = S.symbol_id;
+                s_type += &format!("\t@{}_{} = alloc i32\n\tstore %{}, @{}_{}\n", ident, s, ident,
+                                   ident, s);
+            }
+            _ => {unreachable!()}
+        }
+        if !self.params.is_empty(){
+            for i in &self.params{
+                ident = &i.ident;
+                btype = &i.btype;
+                match btype{
+                    BType::Int => {
+                        let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                        let mut g = m.borrow_mut().get_mut().allocate_symbol_table();
+                        let mut S = g.lock().unwrap();
+                        S.insert_var_symbol((&ident).to_string(),None);
+                        let s = S.symbol_id;
+                        s_type += &format!("\t@{}_{} = alloc i32\n\tstore %{}, @{}_{}\n", ident, s, ident,
+                                           ident, s);
+                    }
+                    _ => {unreachable!()}
+                }
+            }
+        }
+        s_type
     }
 }
 
 impl GetKoopa for FuncDef{
     fn get_koopa(&self) -> String {
-        let typ: &str;
+        let mut typ: &str;
+        let mut sr: String = "".to_string();
         match self.func_type{
             FuncType::Int => {
                 typ = "i32";
+                if let Some(params) = &self.params{
+                    sr = format!("fun @{}({}): {} ", &self.id, params.get_koopa(),typ)
+                        .to_string() +
+                        &format!
+                        ("{{\n%entry:\n\t@result = alloc i32\n");
+
+                } else {
+                    sr = format!("fun @{}(): {} ", &self.id, typ)
+                        .to_string() +
+                        &format!
+                        ("{{\n%entry:\n\t@result = alloc i32\n");
+                }
+            },
+            FuncType::Void => {
+                sr = format!("fun @{}()", &self.id).to_string() + &format!
+                ("{{\n%entry:\n");
+            },
+            _ => {
+                unreachable!()
             }
         }
-        let s1 = format!("fun @{}(): {} ", &self.id, typ).to_string() + &format!
-        ("{{\n%entry:\n\t@result = alloc i32\n") + &self
-        .block.get_koopa();
+        let mut s0 =  "".to_string();
+        if let Some(params) = &self.params{
+            s0 += &params.alloc_local_var();
+        } else {
+            s0 = "".to_string();
+        }
+        let s1 = &(sr + &s0 + &self.block.get_koopa());
         let idx = add_reg_idx();
         let sv = s1.split("\n").collect::<Vec<&str>>();
-        let len = (sv.len() - 2) as usize;
-        let c = sv[len].chars().nth(0).unwrap();
-        if c == '%'{
-            let s  = &format!("\tjump %end\n%end:\n\t%{} = load @result\n\tret %{}\n}}\n", idx,
-                              idx);
-            s1 + s
+        //todo: 没有处理return 是void的情况
+        if sv.len() >=2 {
+            let len = (sv.len() - 2) as usize;
+            let c = sv[len].chars().nth(0).unwrap();
+            if let FuncType::Int = self.func_type{
+                if c == '%'{
+                    let s  = &format!("\tjump %end\n%end:\n\t%{} = load @result\n\tret \
+                    %{}\n}}\n\n", idx,
+                                      idx);
+                    s1.to_string() + s
+                } else {
+                    let s  = &format!("%end:\n\t%{} = load @result\n\tret %{}\n}}\n\n", idx, idx);
+                    s1.to_string() + s
+                }
+            }else {
+                if c == '%'{
+                    let s  = &format!("\tjump %end\n%end:\n\tret\n}}\n\n");
+                    s1.to_string() + s
+                } else {
+                    let s  = &format!("%end:\n\tret\n}}\n\n");
+                    s1.to_string() + s
+                }
+            }
         } else {
-            let s  = &format!("%end:\n\t%{} = load @result\n\tret %{}\n}}\n", idx, idx);
-            s1 + s
+            unreachable!();
         }
+
     }
 }
 
@@ -519,6 +649,8 @@ impl GetKoopa for UnaryExp{
                     }
                     _ => "".to_string()
                 }
+            } else if let Some(func_call) = &self.func_call{
+                let ident = ;
             } else {
                 "".to_string()
             }

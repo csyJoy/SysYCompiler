@@ -14,16 +14,36 @@ match {
 
 // 定义 CompUnit, 其返回值类型为 String
 // parser 在解析完成后的行为是返回 FuncDef 的值
-pub CompUnit: CompUnit = <func_def: FuncDef> => CompUnit { <> };
+pub CompUnit: CompUnit = <items: (<GlobalItem>)*> => CompUnit { <> };
+
+GlobalItem: GlobalItem = {
+    <decl:Decl> => GlobalItem::Decl(decl),
+    <func_def: FuncDef> => GlobalItem::FuncDef(func_def)
+}
 
 // 同上, 不解释
 FuncDef: FuncDef = {
-  <func_type: FuncType> <id: Ident> "(" ")" <block: Block> => {
-    FuncDef { <> }
+    <func_head: FuncHead> "(" <params: (<FuncParams>)?> ")" <block: Block> => {
+    FuncDef { func_type: func_head.0, id: func_head.1, params: params, block: block }
+    // FuncDef { func_type: func_type, id: id, params: params, block: block }
   }
 };
+FuncType: FuncType = {
+    "int" => FuncType::Int,
+    "void" => FuncType::Void
+}
+FuncHead: (FuncType, String) = {
+    "int" <id: Ident>  => (FuncType::Int, id),
+    "void" <id: Ident>  =>  (FuncType::Void, id)
+}
+FuncParams: FuncParams = {
+    <param: FuncParam> <params: ("," <FuncParam>)*> => FuncParams{<>}
+}
+FuncParam: FuncParam = {
+    <btype: BType> <ident: Ident> => FuncParam{<>}
+}
 
-FuncType: FuncType = "int" => FuncType::Int;
+
 
 Block: Block = "{" <block_item: (BlockItem)*> "}" => Block { <> };
 BlockItem: BlockItem = {
@@ -108,9 +128,14 @@ LOrExp: LOrExp = {
 }
 
 UnaryExp: UnaryExp = {
-    <primary_exp: PrimaryExp> => UnaryExp{ primary_exp: Some(Box::new(primary_exp)), unary_exp: None },
+    <primary_exp: PrimaryExp> => UnaryExp{ primary_exp: Some(Box::new(primary_exp)), unary_exp: None , func_call: None},
     <unary_op: UnaryOp> <unary_exp: UnaryExp> => UnaryExp{primary_exp: None, unary_exp: Some((unary_op, Box::new
-    (unary_exp)))},
+    (unary_exp))), func_call: None},
+    <ident: Ident> "(" <func_params: (FuncRParams)?> ")" => UnaryExp{primary_exp: None, unary_exp: None, func_call: Some
+    ((ident, func_params))}
+}
+FuncRParams: FuncRParams = {
+    <exp: Exp> <exp_vec: ("," <Exp>)*> => FuncRParams{<>}
 }
 Lval: Lval = {
     <ident: Ident> => Lval{<>}
@@ -157,13 +182,12 @@ ConstExp: ConstExp = {
 }
 
 VarDecl: VarDecl = {
-    <b_type: BType> <var_def: VarDef> <var_def_vec:("," <VarDef>)*> ";" => {
-        VarDecl{<>}
+    "int" <var_def: VarDef> <var_def_vec:("," <VarDef>)*> ";" => {
+        VarDecl{b_type: BType::Int, var_def: var_def, var_def_vec: var_def_vec}
     }
 }
 VarDef: VarDef = {
-    <ident: Ident> => VarDef{ident: ident, initval: None},
-    <ident: Ident> "=" <initval:InitVal> => VarDef{ident: ident, initval: Some(initval)}
+    <ident: Ident> <initval: ("=" <InitVal>)?> => VarDef{<>}
 }
 InitVal: InitVal = {
     <exp: Exp> => InitVal{ exp: exp }

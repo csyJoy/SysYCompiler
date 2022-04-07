@@ -24,7 +24,14 @@ use lazy_static::lazy_static;
 
 lalrpop_mod!(sysy);
 
-fn main() -> Result<()> {
+fn main() {
+    let a = try_main();
+    match a{
+        Ok(_) => return,
+        Err(e) => eprintln!("{}", e)
+    }
+}
+fn try_main() -> Result<()> {
     // 解析命令行参数
     let mut args = args();
     args.next();

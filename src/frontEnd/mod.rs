@@ -2,6 +2,7 @@ pub mod symbol_table;
 pub mod ast;
 pub mod parser;
 pub mod ir_marco;
+mod eval_const;
 
 pub use symbol_table::{SymbolTable, SymbolType};
 use lazy_static::lazy_static;
