@@ -3,7 +3,7 @@ use std::hash;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::sync::Weak;
-use crate::frontEnd::ast::PrimaryExp;
+use crate::frontEnd::ast::{FuncType, PrimaryExp};
 use crate::frontEnd::GLOBAL_SYMBOL_TABLE_ALLOCATOR;
 
 #[derive(Debug)]
@@ -13,12 +13,26 @@ pub struct SymbolTable{
     table: HashMap<String, SymbolInner>,
 }
 impl SymbolTable{
-    pub fn insert_function_symbol(&mut self, name: String){
+    pub fn insert_function_symbol(&mut self, name: String, func_type: FuncType){
         let s = format!("{}_function", name);
         self.table.insert(s,
-                          SymbolInner{symbol_type: SymbolType::Function,
+                          SymbolInner{symbol_type: SymbolType::Function(func_type),
                               value: None,
                               reg: None});
+    }
+    pub fn function_type(&mut self, name: &String) -> Option<FuncType>{
+        let s = format!("{}_function", name);
+        if let Some(f) = self.table.get(&s){
+            if let SymbolType::Function(FuncType::Int) = &f.symbol_type{
+                Some(FuncType::Int)
+            } else if let SymbolType::Function(FuncType::Void) = &f.symbol_type{
+                Some(FuncType::Void)
+            } else {
+                unreachable!()
+            }
+        } else {
+            None
+        }
     }
     pub fn exist_function_symbol(&mut self, name: &String) -> bool{
         let s = format!("{}_function", name);
@@ -139,7 +153,7 @@ impl SymbolTable{
 }
 #[derive(Debug)]
 pub enum SymbolType{
-    Function,
+    Function(FuncType),
     Const,
     Var
 }

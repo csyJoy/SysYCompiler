@@ -322,7 +322,13 @@ impl GetKoopa for FuncDef{
             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
             let mut g = &m.borrow_mut().get_mut().global_symbol_table;
             let s = g.as_ref().unwrap();
-            s.lock().unwrap().insert_function_symbol((&self.id).to_string());
+            let mut t:FuncType = FuncType::Void;
+            if let FuncType::Int = self.func_type{
+                t = FuncType::Int;
+            } else if let FuncType::Void = self.func_type{
+                t = FuncType::Void;
+            }
+            s.lock().unwrap().insert_function_symbol((&self.id).to_string(), t);
         }
         match self.func_type{
             FuncType::Int => {
@@ -735,31 +741,65 @@ impl GetKoopa for UnaryExp{
                 let mut sy = g.lock().unwrap();
                 if sy.exist_function_symbol(&ident){
                     if let Some(rparams) = params{
-                        let rst = add_reg_idx();
-                        let exp = &rparams.exp;
-                        let mut s = exp.get_koopa();
-                        let mut ss = "".to_string();
-                        let mut pre_call = "".to_string();
-                        if let Ok(i) = s.parse::<i32>() {
-                            ss += &format!("\t%{} = call @{}(", rst, ident);
-                            ss += &format!("{}", i);
-                        } else {
-                            pre_call += &s;
-                            ss += &format!("\t%{} = call @{}(%{}", rst, ident, get_reg_idx(&s));
-                        }
-                        for r in &rparams.exp_vec{
-                            s = r.get_koopa();
+                        if let Some(FuncType::Int) = sy.function_type(&ident){
+                            let rst = add_reg_idx();
+                            let exp = &rparams.exp;
+                            let mut s = exp.get_koopa();
+                            let mut ss = "".to_string();
+                            let mut pre_call = "".to_string();
                             if let Ok(i) = s.parse::<i32>() {
-                                ss += &format!(", {}", i);
+                                ss += &format!("\t%{} = call @{}(", rst, ident);
+                                ss += &format!("{}", i);
                             } else {
                                 pre_call += &s;
-                                ss += &format!(", %{}", get_reg_idx(&s));
+                                ss += &format!("\t%{} = call @{}(%{}", rst, ident, get_reg_idx(&s));
                             }
+                            for r in &rparams.exp_vec{
+                                s = r.get_koopa();
+                                if let Ok(i) = s.parse::<i32>() {
+                                    ss += &format!(", {}", i);
+                                } else {
+                                    pre_call += &s;
+                                    ss += &format!(", %{}", get_reg_idx(&s));
+                                }
+                            }
+                            ss += ")\n";
+                            pre_call + &ss
+                        } else if let Some(FuncType::Void) = sy.function_type(&ident){
+                            let exp = &rparams.exp;
+                            let mut s = exp.get_koopa();
+                            let mut ss = "".to_string();
+                            let mut pre_call = "".to_string();
+                            if let Ok(i) = s.parse::<i32>() {
+                                ss += &format!("\tcall @{}(",ident);
+                                ss += &format!("{}", i);
+                            } else {
+                                pre_call += &s;
+                                ss += &format!("\tcall @{}(%{}",ident, get_reg_idx(&s));
+                            }
+                            for r in &rparams.exp_vec{
+                                s = r.get_koopa();
+                                if let Ok(i) = s.parse::<i32>() {
+                                    ss += &format!(", {}", i);
+                                } else {
+                                    pre_call += &s;
+                                    ss += &format!(", %{}", get_reg_idx(&s));
+                                }
+                            }
+                            ss += ")\n";
+                            pre_call + &ss
+                        } else {
+                            unreachable!()
                         }
-                        ss += ")\n";
-                        pre_call + &ss
                     } else {
-                        format!("\tcall @{}()\n", ident)
+                        if let Some(FuncType::Int) = sy.function_type(&ident){
+                            let rst = add_reg_idx();
+                            format!("\t%{} = call @{}()\n", rst, ident)
+                        } else if let Some(FuncType::Void) = sy.function_type(&ident){
+                            format!("\tcall @{}()\n", ident)
+                        } else {
+                            unreachable!()
+                        }
                     }
                 } else {
                     unreachable!();
