@@ -152,6 +152,7 @@ impl GetKoopa for CompUnit{
             let mut g = m.borrow_mut().get_mut();
             let sy = g.allocate_symbol_table();
             g.global_symbol_table = Some(sy.clone());
+            g.global_symbol_table.as_ref().unwrap().lock().unwrap().init_lib_fun();
         }
         let mut s = "".to_string();
         for i in &self.items{
@@ -742,6 +743,9 @@ impl GetKoopa for UnaryExp{
                 if sy.exist_function_symbol(&ident){
                     if let Some(rparams) = params{
                         if let Some(FuncType::Int) = sy.function_type(&ident){
+                            std::mem::drop(sy);
+                            std::mem::drop(g);
+                            std::mem::drop(m);
                             let rst = add_reg_idx();
                             let exp = &rparams.exp;
                             let mut s = exp.get_koopa();
@@ -766,6 +770,9 @@ impl GetKoopa for UnaryExp{
                             ss += ")\n";
                             pre_call + &ss
                         } else if let Some(FuncType::Void) = sy.function_type(&ident){
+                            std::mem::drop(sy);
+                            std::mem::drop(g);
+                            std::mem::drop(m);
                             let exp = &rparams.exp;
                             let mut s = exp.get_koopa();
                             let mut ss = "".to_string();

@@ -20,6 +20,16 @@ impl SymbolTable{
                               value: None,
                               reg: None});
     }
+    pub fn init_lib_fun(&mut self){
+        self.insert_function_symbol("getint".to_string(), FuncType::Int);
+        self.insert_function_symbol("getch".to_string(), FuncType::Int);
+        self.insert_function_symbol("getarray".to_string(), FuncType::Int);
+        self.insert_function_symbol("putint".to_string(), FuncType::Void);
+        self.insert_function_symbol("putch".to_string(), FuncType::Void);
+        self.insert_function_symbol("putarray".to_string(), FuncType::Void);
+        self.insert_function_symbol("starttime".to_string(), FuncType::Void);
+        self.insert_function_symbol("stoptime".to_string(), FuncType::Void);
+    }
     pub fn function_type(&mut self, name: &String) -> Option<FuncType>{
         let s = format!("{}_function", name);
         if let Some(f) = self.table.get(&s){
