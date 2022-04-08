@@ -4,6 +4,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::sync::Weak;
 use crate::frontEnd::ast::PrimaryExp;
+use crate::frontEnd::GLOBAL_SYMBOL_TABLE_ALLOCATOR;
 
 #[derive(Debug)]
 pub struct SymbolTable{
@@ -12,6 +13,33 @@ pub struct SymbolTable{
     table: HashMap<String, SymbolInner>,
 }
 impl SymbolTable{
+    pub fn insert_function_symbol(&mut self, name: String){
+        let s = format!("{}_function", name);
+        self.table.insert(s,
+                          SymbolInner{symbol_type: SymbolType::Function,
+                              value: None,
+                              reg: None});
+    }
+    pub fn exist_function_symbol(&mut self, name: &String) -> bool{
+        let s = format!("{}_function", name);
+        if let Some(_) = self.table.get(&s){
+            true
+        } else {
+            false
+        }
+    }
+    pub fn exist_global_inited_symbol(&mut self, name: &String) -> bool{
+        //todo: 是否是global symbol的检测
+        if let Some(v) = self.table.get(name){
+            if let Some(_) = v.value{
+                true
+            }else {
+                false
+            }
+        }else{
+            false
+        }
+    }
     pub fn insert_const_symbol(&mut self, name: String, value: i32){
         self.table.insert(name,
                           SymbolInner{symbol_type: SymbolType::Const,
@@ -35,7 +63,7 @@ impl SymbolTable{
         if let Some(a) = self.table.get(name){
             let c  = match a.symbol_type{
                 SymbolType::Const => true,
-                SymbolType::Var => false
+                _ => false,
             };
             self.table.contains_key(name) && c
         } else {
@@ -50,8 +78,8 @@ impl SymbolTable{
     pub fn exist_var_symbol(&self, name: &String)-> Option<i32>{
         if let Some(a) = self.table.get(name){
             let c  = match a.symbol_type{
-                SymbolType::Const => false,
-                SymbolType::Var => true
+                SymbolType::Var => true,
+                _ => false
             };
             if self.table.contains_key(name) && c{
                 Some(self.symbol_id)
@@ -67,7 +95,7 @@ impl SymbolTable{
             }
         }
     }
-    pub fn get_const_value(&self, name: &String) -> i32{
+    pub fn get_value(&self, name: &String) -> i32{
         if let Some(b) = self.table.get(name) {
             if let Some(a) = &b.value{
                 match a{
@@ -80,7 +108,7 @@ impl SymbolTable{
         } else {
             if let Some(d) = &self.last_scpoe{
                 let e = d.lock().unwrap();
-                e.get_const_value(name)
+                e.get_value(name)
             } else {
                 0
             }
@@ -111,6 +139,7 @@ impl SymbolTable{
 }
 #[derive(Debug)]
 pub enum SymbolType{
+    Function,
     Const,
     Var
 }
@@ -128,7 +157,8 @@ struct SymbolInner{
 pub struct GlobalSymbolTableAllocator{
     pub now_symbol: Option<Arc<Mutex<SymbolTable>>>,
     pub symbol_table_vec: Vec<Arc<Mutex<SymbolTable>>>,
-    pub now_id: i32
+    pub now_id: i32,
+    pub global_symbol_table: Option<Arc<Mutex<SymbolTable>>>
 }
 impl GlobalSymbolTableAllocator{
     pub(crate) fn allocate_symbol_table(&mut self) -> Arc<Mutex<SymbolTable>>{

@@ -149,7 +149,9 @@ impl GetKoopa for CompUnit{
     fn get_koopa(&self) -> String {
         {
             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-            let g = m.borrow_mut().get_mut().allocate_symbol_table();
+            let mut g = m.borrow_mut().get_mut();
+            let sy = g.allocate_symbol_table();
+            g.global_symbol_table = Some(sy.clone());
         }
         let mut s = "".to_string();
         for i in &self.items{
@@ -166,13 +168,85 @@ impl GetKoopa for GlobalItem{
     fn get_koopa(&self) -> String{
         match &self{
             GlobalItem::Decl(decl) => {
-                decl.get_koopa()
+                decl.get_global_definition()
             }
             GlobalItem::FuncDef(func_def) => {
                 func_def.get_koopa()
             }
             _ => unreachable!()
         }
+    }
+}
+impl Decl{
+    fn get_global_definition(&self) -> String{
+        if let Some(var) = &self.var_decl{
+            var.get_global_definition()
+        } else if let Some(con) = &self.const_decl{
+            con.get_global_definition()
+        } else {
+            unreachable!()
+        }
+    }
+}
+impl VarDecl{
+   fn get_global_definition(&self) -> String{
+       let mut s = "".to_string();
+       s += &self.var_def.get_global_definition();
+       for var in &self.var_def_vec{
+           s += &var.get_global_definition();
+       }
+       s
+   }
+}
+
+impl VarDef{
+    fn get_global_definition(&self) -> String{
+        let s = self.get_name();
+        if let Some(i) = &self.initval{
+            let mut k = i.get_koopa();
+            if let Ok(l)= k.parse::<i32>(){
+                let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                let mut g = m.borrow_mut().get_mut();
+                let mut go =  g.global_symbol_table.as_mut().unwrap().lock().unwrap();
+                go.insert_var_symbol(s, Some(l));
+                let unique_name = self.get_name() + &format!("_{}",go.symbol_id);
+                format!("global @{} = alloc {}, {}\n",unique_name, "i32", l)
+            } else {
+                unreachable!();
+            }
+        } else {
+            let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+            let mut g = m.borrow_mut().get_mut();
+            let mut go =  g.global_symbol_table.as_mut().unwrap().lock().unwrap();
+            go.insert_var_symbol((&s).to_string(), Some(0));
+            let unique_name = self.get_name() + &format!("_{}",go.symbol_id);
+            format!("global @{} = alloc {}, 0\n", unique_name, "i32")
+        }
+    }
+}
+impl ConstDecl{
+    fn get_global_definition(&self) -> String{
+        //todo: 没有加vec的处理
+        let a = self.const_def.eval_const().unwrap();
+        let Value::Int(i) = a;
+        let s = self.const_def.get_name();
+        {
+            let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+            let mut g = m.borrow_mut().get_mut();
+            let mut k = g.global_symbol_table.as_mut().unwrap().lock().unwrap();
+            k.insert_const_symbol(s, i);
+        }
+        if let Some(v) = &self.const_def_vec{
+            for q in v{
+                let a = q.eval_const().unwrap();
+                let Value::Int(i) = a;
+                let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                let mut g = m.borrow_mut().get_mut();
+                let mut k = g.global_symbol_table.as_mut().unwrap().lock().unwrap();
+                k.insert_const_symbol(q.get_name(), i);
+            }
+        }
+        "".to_string()
     }
 }
 impl GetKoopa for FuncParams{
@@ -244,6 +318,12 @@ impl GetKoopa for FuncDef{
     fn get_koopa(&self) -> String {
         let mut typ: &str;
         let mut sr: String = "".to_string();
+        {
+            let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+            let mut g = &m.borrow_mut().get_mut().global_symbol_table;
+            let s = g.as_ref().unwrap();
+            s.lock().unwrap().insert_function_symbol((&self.id).to_string());
+        }
         match self.func_type{
             FuncType::Int => {
                 typ = "i32";
@@ -650,32 +730,39 @@ impl GetKoopa for UnaryExp{
                     _ => "".to_string()
                 }
             } else if let Some((ident, params)) = &self.func_call{
-                if let Some(rparams) = params{
-                    let rst = add_reg_idx();
-                    let exp = &rparams.exp;
-                    let mut s = exp.get_koopa();
-                    let mut ss = "".to_string();
-                    let mut pre_call = "".to_string();
-                    if let Ok(i) = s.parse::<i32>() {
-                        ss += &format!("\t%{} = call @{}(", rst, ident);
-                        ss += &format!("{}", i);
-                    } else {
-                        pre_call += &s;
-                        ss += &format!("\t%{} = call @{}(%{}", rst, ident, get_reg_idx(&s));
-                    }
-                    for r in &rparams.exp_vec{
-                        s = r.get_koopa();
+                let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                let mut g = &m.borrow_mut().get_mut().global_symbol_table.as_ref().unwrap();
+                let mut sy = g.lock().unwrap();
+                if sy.exist_function_symbol(&ident){
+                    if let Some(rparams) = params{
+                        let rst = add_reg_idx();
+                        let exp = &rparams.exp;
+                        let mut s = exp.get_koopa();
+                        let mut ss = "".to_string();
+                        let mut pre_call = "".to_string();
                         if let Ok(i) = s.parse::<i32>() {
-                            ss += &format!(", {}", i);
+                            ss += &format!("\t%{} = call @{}(", rst, ident);
+                            ss += &format!("{}", i);
                         } else {
                             pre_call += &s;
-                            ss += &format!(", %{}", get_reg_idx(&s));
+                            ss += &format!("\t%{} = call @{}(%{}", rst, ident, get_reg_idx(&s));
                         }
+                        for r in &rparams.exp_vec{
+                            s = r.get_koopa();
+                            if let Ok(i) = s.parse::<i32>() {
+                                ss += &format!(", {}", i);
+                            } else {
+                                pre_call += &s;
+                                ss += &format!(", %{}", get_reg_idx(&s));
+                            }
+                        }
+                        ss += ")\n";
+                        pre_call + &ss
+                    } else {
+                        format!("\tcall @{}()\n", ident)
                     }
-                    ss += ")\n";
-                    pre_call + &ss
                 } else {
-                    format!("\tcall @{}()", ident)
+                    unreachable!();
                 }
             } else {
                 "".to_string()
@@ -705,8 +792,8 @@ impl GetKoopa for PrimaryExp{
                let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                let mut g  = m.borrow_mut().get_mut();
                let mut k = g.now_symbol.as_ref().unwrap().lock().unwrap();
-               if k.exist_const_symbol(&a.ident){
-                    format!("{}", k.get_const_value(&a.ident))
+               if k.exist_const_symbol(&a.ident) || k.exist_global_inited_symbol(&a.ident){
+                    format!("{}", k.get_value(&a.ident))
                } else if let Some(symbol_id) = k.exist_var_symbol(&a.ident){
                    let tmp = add_reg_idx();
                    k.set_var_reg(&a.ident, tmp);
@@ -1105,6 +1192,19 @@ impl GetKoopa for InitVal{
         }
     }
 }
+impl InitVal{
+    fn get_global_definition(&self) -> String {
+        if let Some(a) = self.exp.eval_const(){
+            if let Value::Int(i) = a {
+                format!("{}", i)
+            } else {
+                "".to_string()
+            }
+        } else {
+            unreachable!()
+        }
+    }
+}
 
 impl GetKoopa for ConstDecl{
     fn get_koopa(&self) -> String {
@@ -1350,10 +1450,25 @@ impl EvalConst for PrimaryExp{
             Some(Value::Int(n))
         } else {
             if let Some(tmp) = &self.lval{
-                let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                let mut s = g.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
-                if s.exist_const_symbol(&tmp.ident){
-                    let i = s.get_const_value(&tmp.ident);
+                let mut const_bool = false;
+                let mut global_bool = false;
+                {
+                    let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                    let mut k = g.borrow_mut().get_mut();
+                    let mut s = k.now_symbol.as_ref().unwrap().lock().unwrap();
+                    const_bool = s.exist_const_symbol(&tmp.ident)
+                }
+                {
+                    let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                    let mut k = g.borrow_mut().get_mut();
+                    let mut gg = k.global_symbol_table.as_ref().unwrap().lock().unwrap();
+                    global_bool = gg.exist_global_inited_symbol(&tmp.ident);
+                }
+                if  const_bool || global_bool{
+                    let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                    let mut k = g.borrow_mut().get_mut();
+                    let mut s = k.now_symbol.as_ref().unwrap().lock().unwrap();
+                    let i = s.get_value(&tmp.ident);
                     return Some(Value::Int(i))
                 } else {
                     return None

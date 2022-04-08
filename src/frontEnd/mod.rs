@@ -14,5 +14,5 @@ lazy_static!{
     pub static ref REG_INDEX: Mutex<RefCell<i32>> = Mutex::new(RefCell::new(0));
     pub static ref GLOBAL_SYMBOL_TABLE_ALLOCATOR: Mutex<RefCell<GlobalSymbolTableAllocator>> = Mutex::new
     (RefCell::new(GlobalSymbolTableAllocator{ now_symbol: None ,symbol_table_vec: Vec::new(),
-     now_id: 0}));
+     now_id: 0, global_symbol_table: None}));
 }
