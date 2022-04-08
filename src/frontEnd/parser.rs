@@ -147,14 +147,14 @@ pub trait GetName{
 
 impl GetKoopa for CompUnit{
     fn get_koopa(&self) -> String {
+        let mut s = "".to_string();
         {
             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
             let mut g = m.borrow_mut().get_mut();
             let sy = g.allocate_symbol_table();
             g.global_symbol_table = Some(sy.clone());
-            g.global_symbol_table.as_ref().unwrap().lock().unwrap().init_lib_fun();
+            s += &g.global_symbol_table.as_ref().unwrap().lock().unwrap().init_lib_fun();
         }
-        let mut s = "".to_string();
         for i in &self.items{
             s += &i.get_koopa();
         }
@@ -367,9 +367,10 @@ impl GetKoopa for FuncDef{
         //todo: 没有处理return 是void的情况
         if sv.len() >=2 {
             let len = (sv.len() - 2) as usize;
+            let vec = sv[len].split(" ").collect::<Vec<&str>>();
             let c = sv[len].chars().nth(0).unwrap();
             if let FuncType::Int = self.func_type{
-                if c == '%'{
+                if c == '%' || vec[0] != "\tjump"{
                     let s  = &format!("\tjump %end\n%end:\n\t%{} = load @result\n\tret \
                     %{}\n}}\n\n", idx,
                                       idx);
@@ -379,7 +380,7 @@ impl GetKoopa for FuncDef{
                     s1.to_string() + s
                 }
             }else {
-                if c == '%'{
+                if c == '%' || vec[0] != "\tjump"{
                     let s  = &format!("\tjump %end\n%end:\n\tret\n}}\n\n");
                     s1.to_string() + s
                 } else {
@@ -746,17 +747,19 @@ impl GetKoopa for UnaryExp{
                             std::mem::drop(sy);
                             std::mem::drop(g);
                             std::mem::drop(m);
-                            let rst = add_reg_idx();
                             let exp = &rparams.exp;
                             let mut s = exp.get_koopa();
                             let mut ss = "".to_string();
                             let mut pre_call = "".to_string();
                             if let Ok(i) = s.parse::<i32>() {
+                                let rst = add_reg_idx();
                                 ss += &format!("\t%{} = call @{}(", rst, ident);
                                 ss += &format!("{}", i);
                             } else {
                                 pre_call += &s;
-                                ss += &format!("\t%{} = call @{}(%{}", rst, ident, get_reg_idx(&s));
+                                let idx = get_reg_idx(&s);
+                                let rst = add_reg_idx();
+                                ss += &format!("\t%{} = call @{}(%{}", rst, ident, idx);
                             }
                             for r in &rparams.exp_vec{
                                 s = r.get_koopa();

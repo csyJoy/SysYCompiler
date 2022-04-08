@@ -20,15 +20,25 @@ impl SymbolTable{
                               value: None,
                               reg: None});
     }
-    pub fn init_lib_fun(&mut self){
+    pub fn init_lib_fun(&mut self) -> String{
+        let mut s = "".to_string();
         self.insert_function_symbol("getint".to_string(), FuncType::Int);
+        s += "decl @getint(): i32\n";
         self.insert_function_symbol("getch".to_string(), FuncType::Int);
+        s += "decl @getch(): i32\n";
         self.insert_function_symbol("getarray".to_string(), FuncType::Int);
+        s += "decl @getarray(*i32): i32\n";
         self.insert_function_symbol("putint".to_string(), FuncType::Void);
+        s += "decl @putint(i32)\n";
         self.insert_function_symbol("putch".to_string(), FuncType::Void);
+        s += "decl @putch(i32)\n";
         self.insert_function_symbol("putarray".to_string(), FuncType::Void);
+        s += "decl @putarray(i32, *i32)\n";
         self.insert_function_symbol("starttime".to_string(), FuncType::Void);
+        s += "decl @starttime()\n";
         self.insert_function_symbol("stoptime".to_string(), FuncType::Void);
+        s += "decl @stoptime()\n";
+        s
     }
     pub fn function_type(&mut self, name: &String) -> Option<FuncType>{
         let s = format!("{}_function", name);
