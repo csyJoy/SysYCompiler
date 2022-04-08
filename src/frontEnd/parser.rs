@@ -6,6 +6,7 @@ use std::cell::{Ref, RefCell};
 use std::fmt::format;
 use std::mem;
 use std::ops::{Add, Deref, Mul};
+use std::process::id;
 use std::sync::Mutex;
 use symbol_table::GlobalSymbolTableAllocator;
 use crate::frontEnd::ast::StmtType::StmtBlock;
@@ -485,6 +486,7 @@ impl GetKoopa for Stmt{
                         let mut go = g.lock().unwrap();
                         let unique_name = format!("{}_{}",ident.ident, go.exist_var_symbol(&ident
                             .ident).unwrap());
+                        go.modify_var_symbol(&ident.ident, i);
                         format!("\tstore {}, @{}\n",i, unique_name)
                     } else {
                         let mut unique_name = "".to_string();
@@ -797,7 +799,8 @@ impl GetKoopa for UnaryExp{
                                 }
                             }
                             ss += ")\n";
-                            pre_call + &ss
+                            let s = pre_call + &ss;
+                            s
                         } else {
                             unreachable!()
                         }
@@ -839,10 +842,35 @@ impl GetKoopa for PrimaryExp{
            if let Some(a) = self.num{
                 format!("{}", a)
            } else if let Some(a) = &self.lval{
-               let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-               let mut g  = m.borrow_mut().get_mut();
-               let mut k = g.now_symbol.as_ref().unwrap().lock().unwrap();
-               if k.exist_const_symbol(&a.ident) || k.exist_global_inited_symbol(&a.ident){
+               let mut const_bool = false;
+               let mut global_bool = false;
+               let mut var_bool = false;
+               {
+                   let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                   let mut k = g.borrow_mut().get_mut();
+                   let mut s = k.now_symbol.as_ref().unwrap().lock().unwrap();
+                   const_bool = s.exist_const_symbol(&a.ident)
+               }
+               {
+                   let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                   let mut k = g.borrow_mut().get_mut();
+                   let mut gg = k.global_symbol_table.as_ref().unwrap().lock().unwrap();
+                   global_bool = gg.exist_global_inited_symbol(&a.ident);
+               }
+               {
+                   let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                   let mut k = g.borrow_mut().get_mut();
+                   let mut s = k.now_symbol.as_ref().unwrap().lock().unwrap();
+                   if let Some(_) = s.exist_var_symbol(&a.ident){
+                        var_bool = true;
+                   } else {
+                       var_bool = false;
+                   }
+               }
+               let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+               let mut m = g.borrow_mut().get_mut();
+               let mut k = m.now_symbol.as_ref().unwrap().lock().unwrap();
+               if (const_bool || global_bool) && !var_bool{
                     format!("{}", k.get_value(&a.ident))
                } else if let Some(symbol_id) = k.exist_var_symbol(&a.ident){
                    let tmp = add_reg_idx();

@@ -1,3 +1,4 @@
+use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::hash;
 use std::rc::Rc;
@@ -93,6 +94,14 @@ impl SymbolTable{
                                   reg: None});
         }
     }
+    pub fn modify_var_symbol(&mut self, name: &String, value: i32){
+        if let Some(_) = self.exist_var_symbol(name){
+            self.table.remove(name);
+            self.insert_var_symbol(name.to_string(), Some(value));
+        } else {
+            unreachable!()
+        }
+    }
     pub fn exist_const_symbol(&self, name: &String) -> bool{
         if let Some(a) = self.table.get(name){
             let c  = match a.symbol_type{
@@ -171,17 +180,17 @@ impl SymbolTable{
         }
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SymbolType{
     Function(FuncType),
     Const,
     Var
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Value{
     Int(i32),
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct SymbolInner{
     symbol_type: SymbolType,
     value: Option<Value>,

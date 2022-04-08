@@ -29,7 +29,7 @@ pub struct FuncDef {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum  FuncType{
     Int,
     Void
