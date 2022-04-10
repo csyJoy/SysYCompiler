@@ -133,7 +133,7 @@ impl GenerateAsm for Program{
             if is_lib(tmp){
                 continue;
             }
-            head += &format!("\t.global @{}\n", tmp);
+            head += &format!("\t.global {}\n", tmp);
             func_def += &self.func(func).generate();
             let mut m = global_reg_allocator.lock().unwrap();
             let mut g = m.borrow_mut().get_mut();
@@ -187,7 +187,7 @@ fn calculate_and_allocate_space(this: &FunctionData) -> Caller{
 impl GenerateAsm for FunctionData{
     fn generate(&self) -> String {
         let mut s = "".to_string();
-        s += &format!("@{}:\n", &self.name().to_string()[1..]);
+        s += &format!("{}:\n", &self.name().to_string()[1..]);
         let caller = calculate_and_allocate_space(self);
         let mut sp_len = 0;
         if let Caller::Caller((sp, offset)) = caller{
@@ -306,7 +306,7 @@ impl splitGen for FunctionData {
             idx = idx + 1;
         }
         let m = global_function_name.lock().unwrap();
-        *s += &format!("\tcall {}\n", m.get(&call.callee()).unwrap());
+        *s += &format!("\tcall {}\n", m.get(&call.callee()).unwrap()[1..].to_string());
         let mut m = global_reg_allocator.lock().unwrap();
         m.get_mut().bound_space(value, 4);
     }
