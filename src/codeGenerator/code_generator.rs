@@ -167,13 +167,13 @@ fn calculate_and_allocate_space(this: &FunctionData) -> Caller{
             let value_data = this.dfg().value(inst);
             if !value_data.ty().is_unit(){
                 bits += 4;
-                if let ValueKind::Call(call) = value_data.kind(){
-                    let  vec = call.args();
-                    if vec.len() as i32 - 8 > arg_count_max{
-                        arg_count_max = vec.len() as i32 - 8 ;
-                    }
-                    caller = true;
+            }
+            if let ValueKind::Call(call) = value_data.kind(){
+                let  vec = call.args();
+                if vec.len() as i32 - 8 > arg_count_max{
+                    arg_count_max = vec.len() as i32 - 8 ;
                 }
+                caller = true;
             }
         }
     }
