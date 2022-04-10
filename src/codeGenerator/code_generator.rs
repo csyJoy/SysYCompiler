@@ -109,8 +109,8 @@ impl GenerateAsm for Program{
             let mut var = global_varable.lock().unwrap();
             if let Some(name) = val_data.name(){
                 var.insert(val.clone(), name.to_string());
-                s += &format!("\t.global {}\n",name);
-                s += &format!("{}:\n",name);
+                s += &format!("\t.global {}\n",name[1..].to_string());
+                s += &format!("{}:\n",name[1..].to_string());
                 if let ValueKind::GlobalAlloc(g) = val_data.kind(){
                     let init_value = values.get(&g.init());
                     if let Some(i) = init_value{
@@ -334,7 +334,7 @@ impl splitGen for FunctionData {
             let mut idx = 8;
             let value = arg_vec[idx];
             if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
-                *s += &format!("\tsw {}, {}(to_string)\n",i.value(), (idx - 8) * 4);
+                *s += &format!("\tsw {}, {}(sp)\n",i.value(), (idx - 8) * 4);
             } else {
                 let mut m = global_reg_allocator.lock().unwrap();
                 let mut g = m.get_mut();
@@ -502,8 +502,10 @@ impl splitGen for FunctionData {
             *s += &(format!("\tlw t{}, {}(sp)\n",reg_idx, src_offset) + &format!("\tsw t{}, {}(sp)\n",
                                                                                  reg_idx, offset));
         } else if let Some(name) = var.get(&src_value){
-            *s += &format!("\tla t{}, {}\n\tsw t{}, {}(sp)\n",reg_idx, name, reg_idx,
-                           offset);
+            let tmp_reg = g.alloc_reg().unwrap();
+            *s += &format!("\tla t{}, {}\n\tlw t{}, 0(t{})\n\tsw t{}, {}(sp)\n",tmp_reg, name[1..]
+                .to_string(), reg_idx, tmp_reg,reg_idx,offset);
+            g.free_reg(tmp_reg);
         }
         g.free_reg(reg_idx);
     }
@@ -516,8 +518,8 @@ impl splitGen for FunctionData {
         let reg_idx = g.alloc_reg().unwrap();
         if let Some(offset) = g.get_space(dest){
             if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
-                *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &format!("\tsw t{}, {}(sp)\n",
-                                                                                reg_idx, offset));
+                *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &format!("\tsw t{}, {}(sp)\
+                \n", reg_idx, offset));
             } else {
                 //todo 传参数
                 let ty = self.dfg().value(value).kind();
@@ -541,25 +543,41 @@ impl splitGen for FunctionData {
             }
         } else if let Some(name) = var.get(&dest){
             if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
-                *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &format!("\tsw t{}, {}\n",
-                                                                                reg_idx, name));
+                let tmp_reg = g.alloc_reg().unwrap();
+                *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &format!("\tla t{}, \
+                {}\n\tlw t{}, 0(t{})\n\tsw t{}, 0(t{})\n", tmp_reg, name[1..].to_string(), reg_idx,
+                                                                                tmp_reg,reg_idx,
+                    tmp_reg));
+                g.free_reg(tmp_reg);
             } else {
                 //todo 传参数
                 let ty = self.dfg().value(value).kind();
                 match ty{
                     ValueKind::FuncArgRef(func_arg_ref) => {
                         if func_arg_ref.index() < 8{
-                            *s += &format!("\tsw a{}, {}\n", func_arg_ref.index(), name);
+                            let tmp = g.alloc_reg().unwrap();
+                            *s += &format!("\tla t{}, {}\n\tsw a{}, 0(t{})\n",tmp, name[1..].to_string() ,
+                                           func_arg_ref.index
+                            (), tmp);
+                            g.free_reg(tmp);
                         } else {
+                            let tmp = g.alloc_reg().unwrap();
                             let mut k = now_sp_size.lock().unwrap();
                             let sp_size = k.get_mut();
-                            *s += &format!("\tlw t{}, {}(sp)\n\tsw t{}, {}\n",reg_idx, *sp_size + 4
-                                * (func_arg_ref.index() as i32 - 8), reg_idx, name);
+                            *s += &format!("\tlw t{}, {}(sp)\n\tla t{}, {}\n\tsw t{}, 0(t{})\n",
+                                           reg_idx, *sp_size
+                                + 4
+                                * (func_arg_ref.index() as i32 - 8), tmp, name[1..].to_string(),reg_idx,
+                                           tmp);
+                            g.free_reg(tmp);
                         }
                     }
                     _ => {
                         let src_offset = g.get_space(value).unwrap();
-                        *s += &(format!("\tlw t{}, {}(sp)\n",reg_idx, src_offset) + &format!("\tsw t{}, {}\n", reg_idx, name));
+                        let tmp = g.alloc_reg().unwrap();
+                        *s += &(format!("\tlw t{}, {}(sp)\n\tla t{}, {}\n",reg_idx, src_offset,
+                                        tmp, name[1..].to_string()) + &format!("\tsw t{}, 0(t{})\n", reg_idx, tmp));
+                        g.free_reg(tmp);
                     }
                 }
             }
