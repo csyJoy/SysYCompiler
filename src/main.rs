@@ -1,3 +1,4 @@
+#![feature(cell_leak)]
 extern crate koopa;
 
 use lalrpop_util::lalrpop_mod;
