@@ -23,6 +23,8 @@ lazy_static!{
         (RefCell::new((Vec::new(), 0))));
     static ref global_while_switch:Arc<Mutex<RefCell<bool>>> = Arc::new(Mutex::new(RefCell::new
         (true)));
+    static ref now_function_name:Arc<Mutex<RefCell<String>>> = Arc::new(Mutex::new(RefCell::new
+        ("".to_string())));
 }
 pub fn get_while() -> i32{
     let mut g = global_while_count.lock().unwrap();
@@ -331,6 +333,9 @@ impl GetKoopa for FuncDef{
                 t = FuncType::Void;
             }
             s.lock().unwrap().insert_function_symbol((&self.id).to_string(), t);
+            let mut o = now_function_name.lock().unwrap();
+            let mut func_name = o.borrow_mut().get_mut();
+            *func_name = self.id.clone();
         }
         match self.func_type{
             FuncType::Int => {
@@ -372,27 +377,27 @@ impl GetKoopa for FuncDef{
             let c = sv[len].chars().nth(0).unwrap();
             if let FuncType::Int = self.func_type{
                 if c == '%' || vec[0] != "\tjump"{
-                    let s  = &format!("\tjump %end\n%end:\n\t%{} = load @result\n\tret \
-                    %{}\n}}\n\n", idx,
-                                      idx);
+                    let s  = &format!("\tjump %end_{}\n%end_{}:\n\t%{} = load @result\n\tret \
+                    %{}\n}}\n\n", self.id, self.id, idx, idx);
                     s1.to_string() + s
                 } else {
-                    let s  = &format!("%end:\n\t%{} = load @result\n\tret %{}\n}}\n\n", idx, idx);
+                    let s  = &format!("%end_{}:\n\t%{} = load @result\n\tret %{}\n}}\n\n", self.id,
+                                      idx,
+                                      idx);
                     s1.to_string() + s
                 }
             }else {
                 if c == '%' || vec[0] != "\tjump"{
-                    let s  = &format!("\tjump %end\n%end:\n\tret\n}}\n\n");
+                    let s  = &format!("\tjump %end_{}\n%end_{}:\n\tret\n}}\n\n", self.id, self.id);
                     s1.to_string() + s
                 } else {
-                    let s  = &format!("%end:\n\tret\n}}\n\n");
+                    let s  = &format!("%end_{}:\n\tret\n}}\n\n", self.id);
                     s1.to_string() + s
                 }
             }
         } else {
             unreachable!();
         }
-
     }
 }
 
@@ -466,15 +471,22 @@ impl GetKoopa for Stmt{
                     let mut q = o.get_mut();
                     *q = false;
                     let a = exp.eval_const();
+                    let mut function_name = "".to_string();
+                    {
+                        function_name = now_function_name.lock().unwrap().borrow_mut()
+                            .get_mut().to_string();
+                    }
                     if let Some(Value::Int(i)) = a{
-                        return format!("\tstore {}, @result\n\tjump %end\n", i);
+                        return format!("\tstore {}, @result\n\tjump %end_{}\n", i, function_name);
                     } else {
                         let exp_string = exp.get_koopa();
                         let exp_reg_idx = get_reg_idx(&exp_string);
                         if let Ok(c) = exp_string.parse::<i32>(){
-                            return format!("\tstore {}, @result\n\tjump %end\n", c);
+                            return format!("\tstore {}, @result\n\tjump %end_{}\n", c,
+                                           function_name);
                         } else {
-                            exp_string + &format!("\tstore %{}, @result\n\tjump %end\n", exp_reg_idx)
+                            exp_string + &format!("\tstore %{}, @result\n\tjump %end_{}\n",
+                                                  exp_reg_idx, function_name)
                         }
                     }
                 }
