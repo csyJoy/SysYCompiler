@@ -199,7 +199,8 @@ fn calculate_and_allocate_space(this: &FunctionData) -> Caller{
         *m.get_mut() = bits;
     }
     if caller{
-        Caller::Caller((((bits + (arg_count_max * 4) as i32 + 15) / 16) as i32 * 16, arg_count_max
+        Caller::Caller((((bits + 4 + (arg_count_max * 4) as i32 + 15) / 16) as i32 * 16,
+                        arg_count_max
             as i32))
     } else {
         Caller::Nocall((((bits + (arg_count_max * 4) as i32 + 15) / 16) as i32 * 16, arg_count_max as i32))
@@ -330,11 +331,17 @@ impl splitGen for FunctionData {
                 g.free_reg(reg_idx);
             }
         }
+        let mut idx = 8;
         while len - 8 > 0{
-            let mut idx = 8;
             let value = arg_vec[idx];
             if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
-                *s += &format!("\tsw {}, {}(sp)\n",i.value(), (idx - 8) * 4);
+                let mut m = global_reg_allocator.lock().unwrap();
+                let mut g = m.get_mut();
+                let tmp = g.alloc_reg().unwrap();
+                *s += &(format!("\tli t{}, {}\n",tmp , i.value()) + &format!("\tsw t{}, {}(sp)\
+                \n",
+                                                                            tmp,  (idx - 8) * 4));
+                g.free_reg(tmp);
             } else {
                 let mut m = global_reg_allocator.lock().unwrap();
                 let mut g = m.get_mut();
