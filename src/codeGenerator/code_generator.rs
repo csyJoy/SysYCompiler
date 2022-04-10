@@ -259,9 +259,12 @@ impl GenerateAsm for FunctionData{
                     _ => unreachable!(),
                 }
             }
+            let name = self.name();
+            let end_name = format!("%end_{}", name[1..].to_string());
             if let Some(data) = self.dfg().bbs().get(&bb){
                 if let Some(a) = &data.name(){
-                    if a == "%end"{
+                    println!("{}",a);
+                    if *a == end_name{
                         s += &format!("\taddi sp, sp, {}\n",sp_len);
                         s += &format!("\tret\n\n");
                     }
