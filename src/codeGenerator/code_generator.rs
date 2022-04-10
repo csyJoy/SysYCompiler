@@ -95,9 +95,10 @@ impl GenerateAsm for Program{
         let mut s = "".to_string();
         let mut m = global_function_name.lock().unwrap();
         //todo: global var的初始化的值表示了左值的下表，不是一个真值
-        let values = Ref::leak(self.borrow_values());
+        let mut values = self.borrow_values();
+        let mut vvalue = values.iter();
         s += "\t.data\n";
-        for (val,val_data) in values{
+        for (val,val_data) in vvalue{
             if let Some(name) = val_data.name(){
                 s += &format!("\t.global {}\n",name);
                 s += &format!("{}:\n",name);
