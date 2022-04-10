@@ -195,15 +195,17 @@ fn calculate_and_allocate_space(this: &FunctionData) -> Caller{
         }
     }
     {
-        let mut m = now_sp_size.lock().unwrap();
-        *m.get_mut() = bits;
     }
     if caller{
-        Caller::Caller((((bits + 4 + (arg_count_max * 4) as i32 + 15) / 16) as i32 * 16,
-                        arg_count_max
-            as i32))
+        let mut m = now_sp_size.lock().unwrap();
+        let sp = ((bits + 4 + (arg_count_max * 4) as i32 + 15) / 16) as i32 * 16;
+        *m.get_mut() = sp;
+        Caller::Caller((sp, arg_count_max as i32))
     } else {
-        Caller::Nocall((((bits + (arg_count_max * 4) as i32 + 15) / 16) as i32 * 16, arg_count_max as i32))
+        let mut m = now_sp_size.lock().unwrap();
+        let sp = ((bits   + (arg_count_max * 4) as i32 + 15) / 16) as i32 * 16;
+        *m.get_mut() = sp;
+        Caller::Nocall((sp, arg_count_max as i32))
     }
 }
 
