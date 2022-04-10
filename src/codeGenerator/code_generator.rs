@@ -167,9 +167,10 @@ fn calculate_and_allocate_space(this: &FunctionData) -> Caller{
             let value_data = this.dfg().value(inst);
             if !value_data.ty().is_unit(){
                 bits += 4;
-                if let TypeKind::Function(vec, _) = value_data.ty().kind(){
-                    if vec.len() - 8 > arg_count_max{
-                        arg_count_max = vec.len() - 8;
+                if let ValueKind::Call(call) = value_data.kind(){
+                    let  vec = call.args();
+                    if vec.len() as i32 - 8 > arg_count_max{
+                        arg_count_max = vec.len() as i32 - 8 ;
                     }
                     caller = true;
                 }
@@ -193,7 +194,7 @@ impl GenerateAsm for FunctionData{
         if let Caller::Caller((sp, offset)) = caller{
             sp_len = sp;
             s += &format!("\taddi sp, sp, -{}\n",sp);
-            s += &format!("\tsw ra, {}(sp)", sp - 4);
+            s += &format!("\tsw ra, {}(sp)\n", sp - 4);
             let mut k = global_reg_allocator.lock().unwrap();
             let mut m = k.get_mut();
             m.offset = offset * 4;
@@ -258,6 +259,9 @@ impl GenerateAsm for FunctionData{
                     }
                     _ => unreachable!(),
                 }
+            }
+            if let Caller::Caller((sp, offeset)) = caller{
+                s += &format!("\tlw ra, {}(sp)\n", sp - 4);
             }
             let name = self.name();
             let end_name = format!("%end_{}", name[1..].to_string());
