@@ -88,6 +88,7 @@ lazy_static!{
     static ref global_reg_allocator: Mutex<RefCell<GlobalRegAlloctor>> = Mutex::new(RefCell::new
         (GlobalRegAlloctor::new(1, 7)));
     static ref global_function_name: Mutex<HashMap<Function, String>> = Mutex::new(HashMap::new());
+    static ref now_sp_size: Mutex<RefCell<i32>> = Mutex::new(RefCell::new(0));
 }
 
 
@@ -177,6 +178,10 @@ fn calculate_and_allocate_space(this: &FunctionData) -> Caller{
                 caller = true;
             }
         }
+    }
+    {
+        let mut m = now_sp_size.lock().unwrap();
+        *m.get_mut() = bits;
     }
     if caller{
         Caller::Caller((((bits + (arg_count_max * 4) as i32 + 15) / 16) as i32 * 16, arg_count_max
@@ -492,7 +497,14 @@ impl splitGen for FunctionData {
             let ty = self.dfg().value(value).kind();
             match ty{
                 ValueKind::FuncArgRef(func_arg_ref) => {
-                    *s += &format!("\tsw a{}, {}(sp)\n", func_arg_ref.index(), offset);
+                    if func_arg_ref.index() < 8{
+                        *s += &format!("\tsw a{}, {}(sp)\n", func_arg_ref.index(), offset);
+                    } else {
+                        let mut k = now_sp_size.lock().unwrap();
+                        let sp_size = k.get_mut();
+                        *s += &format!("\tlw t{}, {}(sp)\n\tsw t{}, {}(sp)\n",reg_idx, *sp_size + 4
+                            * (func_arg_ref.index() as i32 - 8), reg_idx, offset);
+                    }
                 }
                 _ => {
                     let src_offset = g.get_space(value).unwrap();
