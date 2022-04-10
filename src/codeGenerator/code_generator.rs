@@ -309,6 +309,7 @@ impl splitGen for FunctionData {
         *s += &format!("\tcall {}\n", m.get(&call.callee()).unwrap()[1..].to_string());
         let mut m = global_reg_allocator.lock().unwrap();
         m.get_mut().bound_space(value, 4);
+        *s += &format!("\tsw a0, {}(sp)\n", m.get_mut().get_space(value).unwrap());
     }
     fn return_gen(&self, s: &mut String, ret: &Return, value: Value) {
         if let Some(val) = ret.value() {
