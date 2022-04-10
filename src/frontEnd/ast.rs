@@ -11,20 +11,39 @@ pub type Ident = String;
 
 #[derive(Debug)]
 pub struct CompUnit{
-    pub func_def: FuncDef,
+    pub items: Vec<GlobalItem>,
+}
+
+#[derive(Debug)]
+pub enum GlobalItem{
+    Decl(Decl),
+    FuncDef(FuncDef),
 }
 
 #[derive(Debug)]
 pub struct FuncDef {
     pub func_type: FuncType,
     pub id: String,
+    pub params: Option<FuncParams>,
     pub block: Block,
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum  FuncType{
     Int,
+    Void
+}
+#[derive(Debug)]
+pub struct FuncParams{
+    pub param: FuncParam,
+    pub params: Vec<FuncParam>
+}
+
+#[derive(Debug)]
+pub struct FuncParam{
+    pub btype: BType,
+    pub ident: Ident
 }
 
 #[derive(Debug)]
@@ -49,7 +68,10 @@ pub enum StmtType{
     Assign((Lval, Exp)),
     StmtBlock(Block),
     Exp(Option<Exp>),
-    Branch(BranchType)
+    Branch(BranchType),
+    While(Box<(Exp, Stmt)>),
+    Break,
+    Continue
 }
 #[derive(Debug)]
 pub struct Stmt{
@@ -64,7 +86,14 @@ pub struct Exp{
 #[derive(Debug)]
 pub struct UnaryExp{
     pub primary_exp: Option<Box<PrimaryExp>>,
-    pub unary_exp: Option<(UnaryOp, Box<UnaryExp>)>
+    pub unary_exp: Option<(UnaryOp, Box<UnaryExp>)>,
+    pub func_call: Option<(Ident,Option<FuncRParams>)>
+}
+
+#[derive(Debug)]
+pub struct FuncRParams{
+    pub exp: Exp,
+    pub exp_vec: Vec<Exp>
 }
 
 #[derive(Debug)]

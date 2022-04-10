@@ -1,12 +1,18 @@
 use std::any::Any;
+use std::borrow::BorrowMut;
 //use koopa::ir::{BinaryOp, FunctionData, Program, Value, ValueKind};
-use koopa::ir::values::{Binary, Return, BinaryOp, Alloc, Store, Load, Branch, Jump};
+use koopa::ir::values::{Binary, Return, BinaryOp, Alloc, Store, Load, Branch, Jump, Call};
 use lazy_static::lazy_static;
 use std::sync::Mutex;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
+use std::cmp::{max, min};
 use std::collections::HashMap;
 use koopa::ir::entities::{Value, Program, FunctionData, ValueKind, ValueData};
+use koopa::ir::{Function, Type, TypeKind};
+use koopa::ir::ValueKind::Integer;
+use crate::codeGenerator::code_generator::Caller::Nocall;
 use crate::frontEnd::GlobalSymbolTableAllocator;
+use std::sync::Arc;
 
 pub trait GenerateAsm{
     fn generate(&self) -> String;
@@ -35,6 +41,11 @@ impl GlobalRegAlloctor{
             v.push(i);
         }
         GlobalRegAlloctor{ reg_pool: v, map: HashMap::new(), offset: 0 }
+    }
+    fn fresh(&mut self){
+        // self.reg_pool is no need to fresh, because at the end of a function, all reg is free
+        self.map.clear();
+        self.offset = 0;
     }
 }
 impl RegAlloctor for GlobalRegAlloctor{
@@ -65,47 +76,161 @@ impl RegAlloctor for GlobalRegAlloctor{
         self.offset += size;
     }
     fn get_space(&self, value: Value) -> Option<i32> {
-        Some(*self.map.get(&value).unwrap())
+        if let Some(offset) = self.map.get(&value){
+            Some(*offset)
+        } else {
+            None
+        }
     }
 
 }
 lazy_static!{
     static ref global_reg_allocator: Mutex<RefCell<GlobalRegAlloctor>> = Mutex::new(RefCell::new
         (GlobalRegAlloctor::new(1, 7)));
+    static ref global_function_name: Mutex<HashMap<Function, String>> = Mutex::new(HashMap::new());
+    static ref now_sp_size: Mutex<RefCell<i32>> = Mutex::new(RefCell::new(0));
+    static ref global_function_type: Mutex<HashMap<Function, String>> = Mutex::new
+    (HashMap::new());
+    static ref global_varable: Mutex<HashMap<Value, String>> = Mutex::new
+    (HashMap::new());
 }
+
 
 impl GenerateAsm for Program{
     fn generate(&self) -> String {
-        let mut head = "\t.text\n".to_string();
-        let mut func_def = "".to_string();
-        for &func in self.func_layout(){
-            let tmp = &self.func(func).name().to_string()[1..];
-            head += &format!("\t.global {}\n", tmp);
-            func_def += &self.func(func).generate()
+        let mut s = "".to_string();
+        let mut m = global_function_name.lock().unwrap();
+        let mut t = global_function_type.lock().unwrap();
+        //todo: global var的初始化的值表示了左值的下表，不是一个真值
+        let mut values = self.borrow_values();
+        let mut vvalue = values.iter();
+        s += "\t.data\n";
+        for (val,val_data) in vvalue{
+            let mut var = global_varable.lock().unwrap();
+            if let Some(name) = val_data.name(){
+                var.insert(val.clone(), name.to_string());
+                s += &format!("\t.global {}\n",name[1..].to_string());
+                s += &format!("{}:\n",name[1..].to_string());
+                if let ValueKind::GlobalAlloc(g) = val_data.kind(){
+                    let init_value = values.get(&g.init());
+                    if let Some(i) = init_value{
+                        if let ValueKind::Integer(ii) = i.kind(){
+                            if ii.value() == 0{
+                                s += &format!("\t.zero 4\n");
+                            } else {
+                                s += &format!("\t.word {}\n", ii.value());
+                            }
+                        } else {
+                            unreachable!()
+                        }
+                    } else {
+                        unreachable!()
+                    }
+                } else {
+                    unreachable!()
+                }
+            }
         }
-        head + &func_def
+        for &func in self.func_layout(){
+            m.insert(func.clone(), self.func(func).name().to_string());
+            if let TypeKind::Function(_, a) = self.func(func).ty().kind(){
+                if let TypeKind::Unit = a.kind(){
+                    t.insert(func.clone(), "void".to_string());
+                } else if let TypeKind::Int32 = a.kind(){
+                    t.insert(func.clone(), "i32".to_string());
+                }
+            }
+        }
+        std::mem::drop(m);
+        std::mem::drop(t);
+        for &func in self.func_layout(){
+            let mut head = "\t.text\n".to_string();
+            let mut func_def = "".to_string();
+            let tmp = &self.func(func).name().to_string()[1..];
+            if is_lib(tmp){
+                continue;
+            }
+            head += &format!("\t.global {}\n", tmp);
+            func_def += &self.func(func).generate();
+            let mut m = global_reg_allocator.lock().unwrap();
+            let mut g = m.borrow_mut().get_mut();
+            g.fresh();
+            s += &(head + &func_def);
+        }
+        s
+    }
+}
+fn is_lib(true_name: &str) -> bool{
+    if true_name == "getint" || true_name == "getch" || true_name == "getarray" ||
+        true_name == "putint" || true_name == "putch" || true_name == "putarray" || true_name ==
+        "starttime" ||
+        true_name == "stoptime"{
+        true
+    } else {
+        false
     }
 }
 
-fn calculate_and_allocate_space(this: &FunctionData) -> i32{
+enum Caller{
+    Caller((i32, i32)),
+    Nocall((i32, i32))
+}
+fn calculate_and_allocate_space(this: &FunctionData) -> Caller{
     let mut bits:i32 = 0;
+    let mut arg_count_max = 0;
+    let mut caller: bool = false;
     for (&bb, node) in this.layout().bbs(){
         for &inst in node.insts().keys(){
             let value_data = this.dfg().value(inst);
             if !value_data.ty().is_unit(){
                 bits += 4;
             }
+            if let ValueKind::Call(call) = value_data.kind(){
+                let  vec = call.args();
+                if vec.len() as i32 - 8 > arg_count_max{
+                    arg_count_max = vec.len() as i32 - 8 ;
+                }
+                caller = true;
+            }
         }
     }
-    bits
+    {
+    }
+    if caller{
+        let mut m = now_sp_size.lock().unwrap();
+        let sp = ((bits + 4 + (arg_count_max * 4) as i32 + 15) / 16) as i32 * 16;
+        *m.get_mut() = sp;
+        Caller::Caller((sp, arg_count_max as i32))
+    } else {
+        let mut m = now_sp_size.lock().unwrap();
+        let sp = ((bits   + (arg_count_max * 4) as i32 + 15) / 16) as i32 * 16;
+        *m.get_mut() = sp;
+        Caller::Nocall((sp, arg_count_max as i32))
+    }
 }
 
 impl GenerateAsm for FunctionData{
     fn generate(&self) -> String {
         let mut s = "".to_string();
         s += &format!("{}:\n", &self.name().to_string()[1..]);
-        let sp = calculate_and_allocate_space(self);
-        s += &format!("\taddi sp, sp, -{}\n",sp);
+        let caller = calculate_and_allocate_space(self);
+        let mut sp_len = 0;
+        if let Caller::Caller((sp, offset)) = caller{
+            sp_len = sp;
+            s += &format!("\taddi sp, sp, -{}\n",sp);
+            s += &format!("\tsw ra, {}(sp)\n", sp - 4);
+            let mut k = global_reg_allocator.lock().unwrap();
+            let mut m = k.get_mut();
+            m.offset = offset * 4;
+        } else if let Caller::Nocall((sp, offset)) = caller{
+            sp_len = sp;
+            s += &format!("\taddi sp, sp, -{}\n",sp);
+            let mut k = global_reg_allocator.lock().unwrap();
+            let mut m = k.get_mut();
+            m.offset = offset * 4;
+        } else {
+            unreachable!()
+        }
         for (&bb, node) in self.layout().bbs(){
             if let Some(data) = self.dfg().bbs().get(&bb){
                 if let Some(a) = &data.name(){
@@ -153,13 +278,22 @@ impl GenerateAsm for FunctionData{
                     ValueKind::Jump(jump) => {
                         self.jump_gen(&mut s, jump, inst);
                     }
+                    ValueKind::Call(call) => {
+                        self.call_gen(&mut s, call, inst);
+                    }
                     _ => unreachable!(),
                 }
             }
+            let name = self.name();
+            let end_name = format!("%end_{}", name[1..].to_string());
             if let Some(data) = self.dfg().bbs().get(&bb){
                 if let Some(a) = &data.name(){
-                    if a == "%end"{
-                        s += &format!("\taddi sp, sp, {}\n",sp);
+                    println!("{}",a);
+                    if *a == end_name{
+                        if let Caller::Caller((sp, offeset)) = caller{
+                            s += &format!("\tlw ra, {}(sp)\n", sp - 4);
+                        }
+                        s += &format!("\taddi sp, sp, {}\n",sp_len);
                         s += &format!("\tret\n\n");
                     }
                 }
@@ -178,14 +312,67 @@ trait splitGen{
     fn store_gen(&self, s: &mut String, alloc: &Store, value: Value);
     fn branch_gen(&self, s: &mut String, branch: &Branch, value: Value);
     fn jump_gen(&self, s: &mut String, jump: &Jump, value: Value);
+    fn call_gen(&self, s: &mut String, call: &Call, value: Value);
 }
 impl splitGen for FunctionData {
+    fn call_gen(&self, s: &mut String, call: &Call, value: Value) {
+        let arg_vec = call.args();
+        let mut len = arg_vec.len() as i32;
+
+        for i   in (0..min(len, 8)){
+            let idx = i as usize;
+            if let ValueKind::Integer(int) = self.dfg().value(arg_vec[idx]).kind(){
+                *s += &format!("\tli a{}, {}\n", i, int.value());
+            } else {
+                let mut m = global_reg_allocator.lock().unwrap();
+                let mut g = m.get_mut();
+                let src_offset = g.get_space(arg_vec[idx]).unwrap();
+                let reg_idx = g.alloc_reg().unwrap();
+                *s += &format!("\tlw t{}, {}(sp)\n\tmv a{}, t{}\n", reg_idx, src_offset, i,
+                               reg_idx);
+                g.free_reg(reg_idx);
+            }
+        }
+        let mut idx = 8;
+        while len - 8 > 0{
+            let value = arg_vec[idx];
+            if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
+                let mut m = global_reg_allocator.lock().unwrap();
+                let mut g = m.get_mut();
+                let tmp = g.alloc_reg().unwrap();
+                *s += &(format!("\tli t{}, {}\n",tmp , i.value()) + &format!("\tsw t{}, {}(sp)\
+                \n",
+                                                                            tmp,  (idx - 8) * 4));
+                g.free_reg(tmp);
+            } else {
+                let mut m = global_reg_allocator.lock().unwrap();
+                let mut g = m.get_mut();
+                let src_offset = g.get_space(value).unwrap();
+                let reg_idx = g.alloc_reg().unwrap();
+                *s += &(format!("\tlw t{}, {}(sp)\n", reg_idx, src_offset)+&format!("\tsw t{}, {}\
+                (sp)\n",
+                                                                           reg_idx, (idx - 8) * 4));
+                g.free_reg(reg_idx);
+            }
+            len = len - 1;
+            idx = idx + 1;
+        }
+        let m = global_function_name.lock().unwrap();
+        *s += &format!("\tcall {}\n", m.get(&call.callee()).unwrap()[1..].to_string());
+        let mut m = global_reg_allocator.lock().unwrap();
+        let mut t = global_function_type.lock().unwrap();
+        let a = t.get(&call.callee()).unwrap();
+        if a == "i32"{
+            m.get_mut().bound_space(value, 4);
+            *s += &format!("\tsw a0, {}(sp)\n", m.get_mut().get_space(value).unwrap());
+        }
+    }
     fn return_gen(&self, s: &mut String, ret: &Return, value: Value) {
         if let Some(val) = ret.value() {
             let a = self.dfg().value(val);
             let b = a.kind();
             let mut g = global_reg_allocator.lock().unwrap();
-            let mut r = g.borrow_mut();
+            let mut r = g.borrow_mut().get_mut();
             match b {
                 ValueKind::Integer(i) =>
                     *s += &format!("\tli a0, {}\n", i.value()),
@@ -200,8 +387,8 @@ impl splitGen for FunctionData {
         let mut l_s = "".to_string();
         let op = bin.op();
         let mut bin_operation = "".to_string();
-        let g = global_reg_allocator.lock().unwrap();
-        let mut r = g.borrow_mut();
+        let mut g = global_reg_allocator.lock().unwrap();
+        let mut r = g.borrow_mut().get_mut();
         let idx = r.alloc_reg().unwrap();
         let size = self.dfg().value(value).ty().size() as i32;
         r.bound_space(value, size);
@@ -314,14 +501,21 @@ impl splitGen for FunctionData {
     fn load_gen(&self, s: &mut String, load: &Load, value: Value) {
         let src_value = load.src();
         let mut m = global_reg_allocator.lock().unwrap();
+        let var = global_varable.lock().unwrap();
         let mut g = m.get_mut();
         let reg_idx = g.alloc_reg().unwrap();
         let size = self.dfg().value(value).ty().size() as i32;
         g.bound_space(value, size);
         let offset = g.get_space(value).unwrap();
-        let src_offset = g.get_space(src_value).unwrap();
-        *s += &(format!("\tlw t{}, {}(sp)\n",reg_idx, src_offset) + &format!("\tsw t{}, {}(sp)\n",
-                                                                         reg_idx, offset));
+        if let Some(src_offset) = g.get_space(src_value){
+            *s += &(format!("\tlw t{}, {}(sp)\n",reg_idx, src_offset) + &format!("\tsw t{}, {}(sp)\n",
+                                                                                 reg_idx, offset));
+        } else if let Some(name) = var.get(&src_value){
+            let tmp_reg = g.alloc_reg().unwrap();
+            *s += &format!("\tla t{}, {}\n\tlw t{}, 0(t{})\n\tsw t{}, {}(sp)\n",tmp_reg, name[1..]
+                .to_string(), reg_idx, tmp_reg,reg_idx,offset);
+            g.free_reg(tmp_reg);
+        }
         g.free_reg(reg_idx);
     }
     fn store_gen(&self, s: &mut String, store: &Store, value: Value) {
@@ -329,16 +523,73 @@ impl splitGen for FunctionData {
         let dest = store.dest();
         let mut m = global_reg_allocator.lock().unwrap();
         let mut g = m.get_mut();
+        let var = global_varable.lock().unwrap();
         let reg_idx = g.alloc_reg().unwrap();
-        let offset = g.get_space(dest).unwrap();
-        if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
-            *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &format!("\tsw t{}, {}(sp)\n",
-                                                                             reg_idx, offset));
-        } else {
-            let src_offset = g.get_space(value).unwrap();
-            *s += &(format!("\tlw t{}, {}(sp)\n",reg_idx, src_offset) + &format!("\tsw t{}, {}\
-            (sp)\n",
-                                                                             reg_idx, offset));
+        if let Some(offset) = g.get_space(dest){
+            if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
+                *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &format!("\tsw t{}, {}(sp)\
+                \n", reg_idx, offset));
+            } else {
+                //todo 传参数
+                let ty = self.dfg().value(value).kind();
+                match ty{
+                    ValueKind::FuncArgRef(func_arg_ref) => {
+                        if func_arg_ref.index() < 8{
+                            *s += &format!("\tsw a{}, {}(sp)\n", func_arg_ref.index(), offset);
+                        } else {
+                            let mut k = now_sp_size.lock().unwrap();
+                            let sp_size = k.get_mut();
+                            *s += &format!("\tlw t{}, {}(sp)\n\tsw t{}, {}(sp)\n",reg_idx, *sp_size + 4
+                                * (func_arg_ref.index() as i32 - 8), reg_idx, offset);
+                        }
+                    }
+                    _ => {
+                        let src_offset = g.get_space(value).unwrap();
+                        *s += &(format!("\tlw t{}, {}(sp)\n",reg_idx, src_offset) + &format!("\tsw t{}, {}\
+                        (sp)\n", reg_idx, offset));
+                    }
+                }
+            }
+        } else if let Some(name) = var.get(&dest){
+            if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
+                let tmp_reg = g.alloc_reg().unwrap();
+                *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &format!("\tla t{}, \
+                {}\n\tlw t{}, 0(t{})\n\tsw t{}, 0(t{})\n", tmp_reg, name[1..].to_string(), reg_idx,
+                                                                                tmp_reg,reg_idx,
+                    tmp_reg));
+                g.free_reg(tmp_reg);
+            } else {
+                //todo 传参数
+                let ty = self.dfg().value(value).kind();
+                match ty{
+                    ValueKind::FuncArgRef(func_arg_ref) => {
+                        if func_arg_ref.index() < 8{
+                            let tmp = g.alloc_reg().unwrap();
+                            *s += &format!("\tla t{}, {}\n\tsw a{}, 0(t{})\n",tmp, name[1..].to_string() ,
+                                           func_arg_ref.index
+                            (), tmp);
+                            g.free_reg(tmp);
+                        } else {
+                            let tmp = g.alloc_reg().unwrap();
+                            let mut k = now_sp_size.lock().unwrap();
+                            let sp_size = k.get_mut();
+                            *s += &format!("\tlw t{}, {}(sp)\n\tla t{}, {}\n\tsw t{}, 0(t{})\n",
+                                           reg_idx, *sp_size
+                                + 4
+                                * (func_arg_ref.index() as i32 - 8), tmp, name[1..].to_string(),reg_idx,
+                                           tmp);
+                            g.free_reg(tmp);
+                        }
+                    }
+                    _ => {
+                        let src_offset = g.get_space(value).unwrap();
+                        let tmp = g.alloc_reg().unwrap();
+                        *s += &(format!("\tlw t{}, {}(sp)\n\tla t{}, {}\n",reg_idx, src_offset,
+                                        tmp, name[1..].to_string()) + &format!("\tsw t{}, 0(t{})\n", reg_idx, tmp));
+                        g.free_reg(tmp);
+                    }
+                }
+            }
         }
         g.free_reg(reg_idx);
     }
@@ -350,10 +601,17 @@ impl splitGen for FunctionData {
         let cond = branch.cond();
         let then_branch = branch.true_bb();
         let else_branch = branch.false_bb();
-        let g = global_reg_allocator.lock().unwrap();
-        let offset = g.borrow_mut().get_space(cond).unwrap();
+
+        let mut k = global_reg_allocator.lock().unwrap();
+        let mut g = k.get_mut();
         let reg_idx = g.borrow_mut().alloc_reg().unwrap();
-        *s +=  &format!("\tlw t{}, {}(sp)\n",reg_idx, offset);
+        if let Some(offset) = g.borrow_mut().get_space(cond){
+            *s +=  &format!("\tlw t{}, {}(sp)\n",reg_idx, offset);
+        } else if let Integer(i) = self.dfg().value(cond).kind(){
+            *s += &format!("\tli t{}, {}\n", reg_idx, i.value());
+        } else {
+            unreachable!();
+        }
         if let Some(then_data) = self.dfg().bbs().get(&then_branch){
             if let Some(then_name) = then_data.name(){
                 let kk = then_name.to_string()[1..then_name.len()].to_string();
