@@ -5,6 +5,7 @@ use koopa::ir::values::{Binary, Return, BinaryOp, Alloc, Store, Load, Branch, Ju
 use lazy_static::lazy_static;
 use std::sync::Mutex;
 use std::cell::{Ref, RefCell};
+use std::cmp::{max, min};
 use std::collections::HashMap;
 use koopa::ir::entities::{Value, Program, FunctionData, ValueKind, ValueData};
 use koopa::ir::{Function, Type, TypeKind};
@@ -294,11 +295,25 @@ impl splitGen for FunctionData {
     fn call_gen(&self, s: &mut String, call: &Call, value: Value) {
         let arg_vec = call.args();
         let mut len = arg_vec.len() as i32;
+
+        for i   in (0..min(len, 8)){
+            let idx = i as usize;
+            if let ValueKind::Integer(int) = self.dfg().value(arg_vec[idx]).kind(){
+                *s += &format!("\tli a{}, {}\n", i, int.value());
+            } else {
+                let mut m = global_reg_allocator.lock().unwrap();
+                let mut g = m.get_mut();
+                let src_offset = g.get_space(arg_vec[idx]).unwrap();
+                let reg_idx = g.alloc_reg().unwrap();
+                *s += &format!("\tlw t{}, {}(sp)\n\tmv a{}, t{}\n", reg_idx, src_offset, i,
+                               reg_idx);
+            }
+        }
         while len - 8 > 0{
             let mut idx = 8;
             let value = arg_vec[idx];
             if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
-                *s += &format!("sw {}, {}(to_string)",i.value(), (idx - 8) * 4);
+                *s += &format!("\tsw {}, {}(to_string)\n",i.value(), (idx - 8) * 4);
             } else {
                 let mut m = global_reg_allocator.lock().unwrap();
                 let mut g = m.get_mut();
