@@ -37,13 +37,18 @@ pub enum  FuncType{
 #[derive(Debug)]
 pub struct FuncParams{
     pub param: FuncParam,
-    pub params: Vec<FuncParam>
+    pub params: Vec<FuncParam>,
+}
+#[derive(Debug)]
+pub struct ArrayIdx{
+    pub const_exp: Vec<ConstExp>
 }
 
 #[derive(Debug)]
 pub struct FuncParam{
     pub btype: BType,
-    pub ident: Ident
+    pub ident: Ident,
+    pub array_idx: Option<ArrayIdx>
 }
 
 #[derive(Debug)]
@@ -196,18 +201,27 @@ pub enum BType{
 
 #[derive(Debug)]
 pub struct Lval{
-    pub ident: Ident
+    pub ident: Ident,
+    pub array_idx: Vec<Exp>,
 }
 
 #[derive(Debug)]
 pub struct ConstDef{
     pub ident: Ident,
-    pub const_init_val: ConstInitVal
+    pub array_idx: Vec<ConstExp>,
+    pub const_init_val: Option<ConstInitVal>
 }
 
 #[derive(Debug)]
 pub struct ConstInitVal{
-    pub const_exp: ConstExp,
+    pub const_exp: Option<ConstExp>,
+    pub array_init_vec: Option<Box<ConstArrayInit>>
+}
+
+#[derive(Debug)]
+pub struct ConstArrayInit{
+    pub array_init: ConstInitVal,
+    pub array_init_vec: Vec<ConstInitVal>
 }
 
 #[derive(Debug)]
@@ -225,10 +239,18 @@ pub struct VarDecl{
 #[derive(Debug)]
 pub struct VarDef{
     pub ident: Ident,
+    pub array_init: Vec<ConstExp>,
     pub initval: Option<InitVal>
 }
 
 #[derive(Debug)]
 pub struct InitVal{
-    pub exp: Exp
+    pub exp: Option<Exp>,
+    pub array_init_vec: Option<Box<VarArrayInit>>,
+}
+
+#[derive(Debug)]
+pub struct  VarArrayInit{
+    pub array_init: InitVal,
+    pub array_init_vec: Vec<InitVal>
 }

@@ -1,5 +1,6 @@
 extern crate koopa;
 
+use std::any::Any;
 use lalrpop_util::lalrpop_mod;
 use std::env::args;
 use std::fs::read_to_string;
@@ -8,6 +9,7 @@ use std::fs::File;
 use crate::frontEnd::symbol_table::GlobalSymbolTableAllocator;
 use std::sync::Mutex;
 use std::cell::RefCell;
+use koopa::ir::Program;
 
 
 mod codeGenerator;
@@ -64,7 +66,5 @@ fn try_main() -> Result<()> {
         let ir = program.generate();
         file.write(ir.as_bytes());
     }
-
-
     Ok(())
 }

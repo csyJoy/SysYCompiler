@@ -75,6 +75,26 @@ impl SymbolTable{
             false
         }
     }
+    pub fn insert_var_point_symbol(&mut self, name: String){
+        self.table.insert(name,
+                          SymbolInner{symbol_type: SymbolType::VarPoint,
+                              value: None,
+                              reg: None});
+    }
+
+    pub fn insert_raw_point_symbol(&mut self, name: String){
+        self.table.insert(name,
+                          SymbolInner{symbol_type: SymbolType::RawPoint,
+                              value: None,
+                              reg: None});
+    }
+
+    pub fn insert_const_point_symbol(&mut self, name: String){
+        self.table.insert(name,
+                          SymbolInner{symbol_type: SymbolType::ConstPoint,
+                              value: None,
+                              reg: None});
+    }
     pub fn insert_const_symbol(&mut self, name: String, value: i32){
         self.table.insert(name,
                           SymbolInner{symbol_type: SymbolType::Const,
@@ -118,10 +138,29 @@ impl SymbolTable{
             }
        }
     }
+    pub fn is_raw_ptr(&self, name: &String) -> bool{
+        if let Some(a) = self.table.get(name){
+            if let SymbolType::RawPoint = a.symbol_type{
+                return true;
+            } else {
+                return false;
+            }
+        } else {
+            if let Some(b) = &self.last_scpoe{
+                let d = b.lock().unwrap();
+                d.is_raw_ptr(name)
+            } else {
+                false
+            }
+        }
+    }
     pub fn exist_var_symbol(&self, name: &String)-> Option<i32>{
         if let Some(a) = self.table.get(name){
             let c  = match a.symbol_type{
                 SymbolType::Var => true,
+                SymbolType::VarPoint => true,
+                SymbolType::ConstPoint => true,
+                SymbolType::RawPoint => true,
                 _ => false
             };
             if self.table.contains_key(name) && c{
@@ -184,7 +223,10 @@ impl SymbolTable{
 pub enum SymbolType{
     Function(FuncType),
     Const,
-    Var
+    Var,
+    ConstPoint,
+    VarPoint,
+    RawPoint
 }
 #[derive(Debug, Clone)]
 pub enum Value{
