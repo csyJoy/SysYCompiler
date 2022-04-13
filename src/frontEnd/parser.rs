@@ -1689,16 +1689,21 @@ impl GetKoopa for VarDef{
     fn get_koopa(&self) -> String{
         let s = self.get_name();
         if !self.array_init.is_empty(){
-            let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-            let mut g = m.borrow_mut().get_mut();
-            let mut go =  g.now_symbol.as_mut().unwrap().lock().unwrap();
-            go.insert_var_point_symbol((&s).to_string());
-            let unique_name = self.get_name() + &format!("_{}",go.symbol_id);
-            let mut total = format!("\t@{} = ", unique_name );
+            let mut unique_name = "".to_string();
+            {
+                let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                let mut g = m.borrow_mut().get_mut();
+                let mut go =  g.now_symbol.as_mut().unwrap().lock().unwrap();
+                go.insert_var_point_symbol((&s).to_string());
+                unique_name = self.get_name() + &format!("_{}",go.symbol_id)
+            }
+            let mut total = format!("\t@{} = alloc ", unique_name );
             let mut ss = "".to_string();
             let mut first:bool = true;
             let mut dim_idx: Vec<i32> = Vec::new();
-            for a in &self.array_init{
+            let mut a = self.array_init.clone();
+            a.reverse();
+            for a in &(a){
                 let idx = a.exp.eval_const().unwrap();
                 let Value::Int(i) = idx;
                 if first{
@@ -1718,6 +1723,8 @@ impl GetKoopa for VarDef{
                     total += &init_var_handler(generate_init_val(var_array_init, &dim_idx, &mut a,
                                                                 0), &dim_idx);
                 }
+            } else {
+                total += "\n";
             }
             total
         }else{
