@@ -1,6 +1,7 @@
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::hash;
+use std::path::Prefix::Disk;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::sync::Weak;
@@ -63,6 +64,24 @@ impl SymbolTable{
             false
         }
     }
+    pub fn get_dimension(&self, name: &String) -> Option<Vec<i32>>{
+        if let Some(a) = self.table.get(name){
+            let c  = match &a.symbol_type{
+                SymbolType::RawPoint(a) => Some(a.size.clone()),
+                SymbolType::ConstPoint(a) => Some(a.size.clone()),
+                SymbolType::VarPoint(a) => Some(a.size.clone()),
+                _ => None,
+            };
+            c
+        } else {
+            if let Some(b) = &self.last_scpoe{
+                let d = b.lock().unwrap();
+                d.get_dimension(name)
+            } else {
+                None
+            }
+        }
+    }
     pub fn exist_global_inited_symbol(&mut self, name: &String) -> bool{
         //todo: 是否是global symbol的检测
         if let Some(v) = self.table.get(name){
@@ -75,23 +94,24 @@ impl SymbolTable{
             false
         }
     }
-    pub fn insert_var_point_symbol(&mut self, name: String){
+    pub fn insert_var_point_symbol(&mut self, name: String, dim: &Vec<i32>){
         self.table.insert(name,
-                          SymbolInner{symbol_type: SymbolType::VarPoint,
+                          SymbolInner{symbol_type: SymbolType::VarPoint(Dimension::from(dim.clone
+                          ())),
                               value: None,
                               reg: None});
     }
 
-    pub fn insert_raw_point_symbol(&mut self, name: String){
+    pub fn insert_raw_point_symbol(&mut self, name: String, dim: &Vec<i32>){
         self.table.insert(name,
-                          SymbolInner{symbol_type: SymbolType::RawPoint,
+                          SymbolInner{symbol_type: SymbolType::RawPoint(Dimension::from(dim.clone())),
                               value: None,
                               reg: None});
     }
 
-    pub fn insert_const_point_symbol(&mut self, name: String){
+    pub fn insert_const_point_symbol(&mut self, name: String, dim: &Vec<i32>){
         self.table.insert(name,
-                          SymbolInner{symbol_type: SymbolType::ConstPoint,
+                          SymbolInner{symbol_type: SymbolType::ConstPoint(Dimension::from(dim.clone())),
                               value: None,
                               reg: None});
     }
@@ -116,8 +136,13 @@ impl SymbolTable{
     }
     pub fn modify_var_symbol(&mut self, name: &String, value: i32){
         if let Some(_) = self.exist_var_symbol(name){
-            self.table.remove(name);
-            self.insert_var_symbol(name.to_string(), Some(value));
+            if let Some(a) = self.table.get(name){
+                self.table.remove(name);
+                self.insert_var_symbol(name.to_string(), Some(value));
+            } else {
+                let mut d = self.last_scpoe.as_ref().unwrap().lock().unwrap();
+                d.modify_var_symbol(name, value);
+            }
         } else {
             unreachable!()
         }
@@ -140,7 +165,7 @@ impl SymbolTable{
     }
     pub fn is_raw_ptr(&self, name: &String) -> bool{
         if let Some(a) = self.table.get(name){
-            if let SymbolType::RawPoint = a.symbol_type{
+            if let SymbolType::RawPoint(_) = a.symbol_type{
                 return true;
             } else {
                 return false;
@@ -154,13 +179,29 @@ impl SymbolTable{
             }
         }
     }
+    pub fn is_var(&self, name: &String) -> bool{
+        if let Some(a) = self.table.get(name){
+            let c  = match a.symbol_type{
+                SymbolType::Var => true,
+                _ => false
+            };
+            c
+        } else {
+            if let Some(b) = &self.last_scpoe{
+                let d = b.lock().unwrap();
+                d.is_var(name)
+            } else {
+                false
+            }
+        }
+    }
     pub fn exist_var_symbol(&self, name: &String)-> Option<i32>{
         if let Some(a) = self.table.get(name){
             let c  = match a.symbol_type{
                 SymbolType::Var => true,
-                SymbolType::VarPoint => true,
-                SymbolType::ConstPoint => true,
-                SymbolType::RawPoint => true,
+                SymbolType::VarPoint(_) => true,
+                SymbolType::ConstPoint(_) => true,
+                SymbolType::RawPoint(_) => true,
                 _ => false
             };
             if self.table.contains_key(name) && c{
@@ -220,13 +261,23 @@ impl SymbolTable{
     }
 }
 #[derive(Debug, Clone)]
+pub struct Dimension{
+    size: Vec<i32>
+}
+impl From<Vec<i32>> for Dimension{
+    fn from(inner: Vec<i32>) -> Self {
+        Dimension{size: inner.clone()}
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum SymbolType{
     Function(FuncType),
     Const,
     Var,
-    ConstPoint,
-    VarPoint,
-    RawPoint
+    ConstPoint(Dimension),
+    VarPoint(Dimension),
+    RawPoint(Dimension)
 }
 #[derive(Debug, Clone)]
 pub enum Value{
