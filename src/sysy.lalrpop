@@ -115,7 +115,7 @@ RelExp: RelExp = {
     <rel_exp: RelExp> "<=" <add_exp: AddExp> => RelExp{ add_exp: None, rel_operate: Some((Box::new(rel_exp),
     RelOperation::LessEq, Box::new(add_exp)))},
     <rel_exp: RelExp> ">=" <add_exp: AddExp> => RelExp{ add_exp: None, rel_operate: Some((Box::new(rel_exp),
-    RelOperation::Greater, Box::new(add_exp)))},
+    RelOperation::GreaterEq, Box::new(add_exp)))},
 }
 
 EqExp: EqExp = {

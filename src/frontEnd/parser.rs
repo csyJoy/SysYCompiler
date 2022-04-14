@@ -1743,6 +1743,7 @@ impl GetKoopa for AddExp{
             a.get_koopa()
         } else {
             if let Some((a, b ,c)) = &self.add_operate{
+                println!("{:#?}", c);
                 let mut operation = "".to_string();
                 match b{
                     AddOperator::Add => operation = "add".to_string(),
@@ -2091,6 +2092,7 @@ impl GetKoopa for VarDef{
                     for i in vec{
                         total += &get_localtion(&unique_name, idx, &dim_idx);
                         total += &format!("\tstore {}, %{}\n",i, get_reg_idx(&total));
+                        idx += 1;
                     }
                 } else {
                     total += "\n";
@@ -2369,7 +2371,7 @@ impl ConstDef{
 // this impl only for the const array
 impl GetKoopa for ConstDef{
     fn get_koopa(&self) -> String{
-        let mut s = "".to_string();
+        let mut s = self.get_name();
         if !self.array_idx.is_empty(){
             let mut unique_name = "".to_string();
             {
@@ -2419,6 +2421,7 @@ impl GetKoopa for ConstDef{
                     for i in vec{
                         total += &get_localtion(&unique_name, idx, &dim_idx);
                         total += &format!("\tstore {}, %{}\n",i, get_reg_idx(&total));
+                        idx += 1;
                     }
                 }
             }
