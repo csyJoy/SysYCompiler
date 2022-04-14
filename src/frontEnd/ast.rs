@@ -69,7 +69,7 @@ pub enum BranchType{
 }
 #[derive(Debug, Clone)]
 pub enum StmtType{
-    Return(Exp),
+    Return(Option<Exp>),
     Assign((Lval, Exp)),
     StmtBlock(Block),
     Exp(Option<Exp>),

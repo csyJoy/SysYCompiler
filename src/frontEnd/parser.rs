@@ -101,13 +101,20 @@ pub fn check_load_ins(name: &String) -> Option<String>{
 }
 pub fn get_reg_idx(name: &String) -> i32{
     let a = check_load_ins(name);
-    if let Some(name) = a{
-        let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-        let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
-        if let Some(i) = g.get_var_reg(&name){
-            i
-        } else {
-            unreachable!()
+    let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+    let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
+    if g.is_var(name){
+        if let Some(name) = a{
+            if let Some(i) = g.get_var_reg(&name){
+                i
+            } else {
+                unreachable!()
+            }
+        }else {
+            // unreachable!();
+            let mut a = REG_INDEX.lock().unwrap();
+            let mut b = a.borrow_mut().get_mut();
+            *b
         }
     } else {
         let mut a = REG_INDEX.lock().unwrap();
@@ -700,12 +707,12 @@ impl FuncParams{
         let mut btype = &self.param.btype;
         let mut idx = &self.param.array_idx;
         let mut s_type = "".to_string();
+        let mut o = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+        let mut g = o.borrow_mut().get_mut().allocate_symbol_table();
+        let mut S = g.lock().unwrap();
         match btype{
             BType::Int => {
                 if let Some(array_idx) = idx{
-                    let mut o = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                    let mut g = o.borrow_mut().get_mut().allocate_symbol_table();
-                    let mut S = g.lock().unwrap();
                     let mut vec:Vec<i32> = Vec::new();
                     let mut ss = "".to_string();
                     let mut ptr = "*".to_string();
@@ -733,9 +740,6 @@ impl FuncParams{
                     s_type += &format!("\t@{}_{} = alloc {}\n\tstore %{}, @{}_{}\n", ident, s,
                         sss, ident, ident, s);
                 }else {
-                    let mut o = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                    let mut g = o.borrow_mut().get_mut().allocate_symbol_table();
-                    let mut S = g.lock().unwrap();
                     S.insert_var_symbol((&ident).to_string(),None);
                     let s = S.symbol_id;
                     s_type += &format!("\t@{}_{} = alloc i32\n\tstore %{}, @{}_{}\n", ident, s, ident,
@@ -752,9 +756,6 @@ impl FuncParams{
                 match btype{
                     BType::Int => {
                         if let Some(array_idx) = idx{
-                            let mut o = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                            let mut g = o.borrow_mut().get_mut().allocate_symbol_table();
-                            let mut S = g.lock().unwrap();
                             let mut vec:Vec<i32> = Vec::new();
                             let mut ss = "".to_string();
                             let mut ptr = "*".to_string();
@@ -782,9 +783,6 @@ impl FuncParams{
                             s_type += &format!("\t@{}_{} = alloc {}\n\tstore %{}, @{}_{}\n", ident, s,
                                                sss, ident, ident, s);
                         }else {
-                            let mut o = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                            let mut g = o.borrow_mut().get_mut().allocate_symbol_table();
-                            let mut S = g.lock().unwrap();
                             S.insert_var_symbol((&ident).to_string(),None);
                             let s = S.symbol_id;
                             s_type += &format!("\t@{}_{} = alloc i32\n\tstore %{}, @{}_{}\n", ident, s, ident,
@@ -857,14 +855,19 @@ impl GetKoopa for FuncDef{
             }
         }
         let mut s0 =  "".to_string();
+        let mut scope = false;
         if let Some(params) = &self.params{
             s0 += &params.alloc_local_var();
+            scope = true;
         } else {
             s0 = "".to_string();
         }
         let s1 = &(sr + &s0 + &self.block.get_koopa());
         let idx = add_reg_idx();
         let sv = s1.split("\n").collect::<Vec<&str>>();
+        let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+        let mut g = m.borrow_mut().get_mut();
+        g.deallocate_symbol_table();
         //todo: 没有处理return 是void的情况
         if sv.len() >=2 {
             let len = (sv.len() - 2) as usize;
@@ -962,27 +965,52 @@ impl GetKoopa for Stmt{
         if q && qq {
             match &self.stmt_type{
                 StmtType::Return(exp) => {
-                    let mut o = global_return_switch.lock().unwrap();
-                    let mut q = o.get_mut();
-                    *q = false;
-                    let a = exp.eval_const();
-                    let mut function_name = "".to_string();
-                    {
-                        function_name = now_function_name.lock().unwrap().borrow_mut()
-                            .get_mut().to_string();
-                    }
-                    if let Some(Value::Int(i)) = a{
-                        return format!("\tstore {}, @result\n\tjump %end_{}\n", i, function_name);
-                    } else {
-                        let exp_string = exp.get_koopa();
-                        let exp_reg_idx = get_reg_idx(&exp_string);
-                        if let Ok(c) = exp_string.parse::<i32>(){
-                            return format!("\tstore {}, @result\n\tjump %end_{}\n", c,
-                                           function_name);
-                        } else {
-                            exp_string + &format!("\tstore %{}, @result\n\tjump %end_{}\n",
-                                                  exp_reg_idx, function_name)
+                    if let Some(exp) = exp{
+                        let mut o = global_return_switch.lock().unwrap();
+                        let mut q = o.get_mut();
+                        *q = false;
+                        let a = exp.eval_const();
+                        let mut function_name = "".to_string();
+                        {
+                            function_name = now_function_name.lock().unwrap().borrow_mut()
+                                .get_mut().to_string();
                         }
+                        if let Some(Value::Int(i)) = a{
+                            return format!("\tstore {}, @result\n\tjump %end_{}\n", i, function_name);
+                        } else {
+                            let exp_string = exp.get_koopa();
+                            let exp_reg_idx = get_reg_idx(&exp_string);
+                            if let Ok(c) = exp_string.parse::<i32>(){
+                                return format!("\tstore {}, @result\n\tjump %end_{}\n", c,
+                                               function_name);
+                            } else {
+                                exp_string + &format!("\tstore %{}, @result\n\tjump %end_{}\n",
+                                                      exp_reg_idx, function_name)
+                            }
+                        }
+                    } else {
+                        let mut o = global_return_switch.lock().unwrap();
+                        let mut q = o.get_mut();
+                        *q = false;
+                        let mut function_name = "".to_string();
+                        {
+                            function_name = now_function_name.lock().unwrap().borrow_mut()
+                                .get_mut().to_string();
+                        }
+                        return format!("\tjump %end_{}\n", function_name);
+                        // if let Some(Value::Int(i)) = a{
+                        //     return format!("\tstore {}, @result\n\tjump %end_{}\n", i, function_name);
+                        // } else {
+                        //     let exp_string = exp.get_koopa();
+                        //     let exp_reg_idx = get_reg_idx(&exp_string);
+                        //     if let Ok(c) = exp_string.parse::<i32>(){
+                        //         return format!("\tstore {}, @result\n\tjump %end_{}\n", c,
+                        //                        function_name);
+                        //     } else {
+                        //         exp_string + &format!("\tstore %{}, @result\n\tjump %end_{}\n",
+                        //                               exp_reg_idx, function_name)
+                        //     }
+                        // }
                     }
                 }
                 StmtType::Assign((ident, exp)) => {
@@ -1558,7 +1586,7 @@ impl GetKoopa for PrimaryExp{
                            }
                            if a.array_idx.len() == 0{
                                let tmp1 = add_reg_idx();
-                               s += &format!("\t%{} = getptr @{}, 0\n", tmp1,
+                               s += &format!("\t%{} = load @{}\n", tmp1,
                                              &unique_name);
                                last_used = tmp1;
                            } else if dim.len() == a.array_idx.len() {

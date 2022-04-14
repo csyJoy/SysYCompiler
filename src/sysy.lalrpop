@@ -72,7 +72,7 @@ MatchedStmt: Stmt = {
     "if" "(" <exp: Exp> ")" <then: MatchedStmt> "else" <else_then: MatchedStmt> => Stmt{stmt_type: StmtType::Branch(
     BranchType::Matched(Box::new((exp, then, else_then))))},
     "while" "(" <exp: Exp> ")" <stmt: MatchedStmt> => Stmt{ stmt_type: StmtType::While(Box::new((<>)))},
-    "return" <exp: Exp> ";" => Stmt { stmt_type: StmtType::Return(<>) },
+    "return" <exp: (Exp)?> ";" => Stmt { stmt_type: StmtType::Return(<>) },
     "break" ";" => Stmt{stmt_type: StmtType::Break},
     "continue" ";" => Stmt{stmt_type: StmtType::Continue}
 }
