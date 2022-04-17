@@ -1,5 +1,5 @@
 use std::any::Any;
-use std::borrow::BorrowMut;
+use std::borrow::{BorrowMut, Borrow};
 // use koopa::ir::{BinaryOp, FunctionData, Program, Value, ValueKind};
 use koopa::ir::types::{ TypeKind, Type };
 use koopa::ir::values::{Binary, Return, BinaryOp, Alloc, Store, Load, Branch, Jump, Call, GetElemPtr, Aggregate, GetPtr};
@@ -15,6 +15,7 @@ use crate::codeGenerator::code_generator::Caller::Nocall;
 use crate::frontEnd::GlobalSymbolTableAllocator;
 use std::sync::Arc;
 use std::hint::unreachable_unchecked;
+use std::hash::Hash;
 
 pub trait GenerateAsm{
     fn generate(&self) -> String;
@@ -34,8 +35,9 @@ pub trait RegAlloctor{
     fn get_space(&self, value: Value) -> Option<i32>;
 }
 pub enum StoreType{
-    value,
-    Point
+    Value, // single value or one dimension array
+    Array,
+    Point //the dimension of array
 }
 struct GlobalRegAlloctor{
     reg_pool: Vec<i32>,
@@ -73,28 +75,30 @@ impl RegAlloctor for GlobalRegAlloctor{
                 reg = g;
                 s += &format!("\tlui t{}, {}\n", g, div);
                 s += &format!("\taddi t{}, t{}, {}\n", g, g, quo);
-                s += &format!("\tadd t{}, sp, t{}\n",g ,g);
             } else {
                 let mut g = self.alloc_reg().unwrap();
                 reg = g;
                 s += &format!("\tlui t{}, {}\n", g, div + 1);
                 s += &format!("\taddi t{}, t{}, {}\n", g, g, quo - (1 << 12));
-                s += &format!("\tadd t{}, sp, t{}\n",g ,g);
             }
         } else if offset >= (1 << 11){
             let g = self.alloc_reg().unwrap();
             reg = g;
             s += &format!("\tlui t{}, {}\n", g, 1);
             s += &format!("\taddi t{}, t{}, {}\n", g, g, offset - (1 << 12));
-            s += &format!("\tadd t{}, sp, t{}\n",g ,g);
         } else {
             let g = self.alloc_reg().unwrap();
             reg = g;
-            s += &format!("\taddi t{}, sp, {}\n", g,  offset);
+            s += &format!("\tli t{}, {}\n", g,  offset);
         }
         (s.to_string(), reg)
     }
     fn free_reg(&mut self, idx: i32) -> Option<i32>{
+        for i in &self.reg_pool{
+            if(idx == *i){
+                unreachable!();
+            }
+        }
         if(idx < 0 || idx >= 7) {
             None
         } else {
@@ -138,8 +142,9 @@ lazy_static!{
     (HashMap::new());
     static ref global_varable: Mutex<HashMap<Value, String>> = Mutex::new
     (HashMap::new());
+    static ref global_variable_type: Mutex<HashMap<Value, (String, i32)>> = Mutex::new
+    (HashMap::new());
 }
-
 fn gen_agg_init(agg: &Aggregate, mut values: HashMap<Value, ValueData>) -> String{
     let mut s = "".to_string();
     for value in agg.elems(){
@@ -158,7 +163,6 @@ fn gen_agg_init(agg: &Aggregate, mut values: HashMap<Value, ValueData>) -> Strin
     }
     s
 }
-
 impl GenerateAsm for Program{
     fn generate(&self) -> String {
         let mut s = "".to_string();
@@ -170,7 +174,17 @@ impl GenerateAsm for Program{
         s += "\t.data\n";
         for (val,val_data) in vvalue{
             let mut var = global_varable.lock().unwrap();
+            let mut var_type = global_variable_type.lock().unwrap();
             if let Some(name) = val_data.name(){
+                if let TypeKind::Pointer(p) = val_data.ty().kind(){
+                    if let TypeKind::Array(ty, size) = p.kind(){
+                        var_type.insert(val.clone(), (val_data.ty().to_string(), ty.size() as i32));
+                    } else {
+                        var_type.insert(val.clone(), (val_data.ty().to_string(), val_data.ty().size() as i32));
+                    }
+                } else {
+                    var_type.insert(val.clone(), (val_data.ty().to_string(), val_data.ty().size() as i32));
+                }
                 var.insert(val.clone(), name.to_string());
                 s += &format!("\t.global {}\n",name[1..].to_string());
                 s += &format!("{}:\n",name[1..].to_string());
@@ -315,10 +329,10 @@ impl GenerateAsm for FunctionData{
             let mut m = k.get_mut();
             sp_len = sp;
             let (ss, reg) = m.get_offset_reg(sp);
-            s += &(ss + &format!("\tsub t{}, t{}, sp\n",reg, reg) + &format!("\tsub sp, sp, t{}\n", reg));
+            s += &(ss + &format!("\tsub sp, sp, t{}\n", reg));
             m.free_reg(reg);
             let (ss, reg) = m.get_offset_reg(sp - 4);
-            s += &(ss + &format!("\tsw ra, 0(t{})\n", reg));
+            s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg) +&format!("\tsw ra, 0(t{})\n", reg));
             m.free_reg(reg);
             m.offset = offset * 4;
             // m.free_reg(mid_reg);
@@ -327,7 +341,7 @@ impl GenerateAsm for FunctionData{
             let mut m = k.get_mut();
             sp_len = sp;
             let (ss, reg) = m.get_offset_reg(sp);
-            s += &(ss + &format!("\tsub t{}, t{}, sp\n",reg, reg)+ &format!("\tsub sp, sp, t{}\n", reg));
+            s += &(ss + &format!("\tsub sp, sp, t{}\n", reg));
             m.free_reg(reg);
             m.offset = offset * 4;
         } else {
@@ -353,7 +367,9 @@ impl GenerateAsm for FunctionData{
                         // println!("{:#?}", ret);
                         // println!("{:#?}", self.dfg().value(ret.value().unwrap()));
                         // println!("=============================================");
+                        s += "# return gen\n";
                         self.return_gen(&mut s, ret, inst);
+                        s += "# return end\n\n"
                     }
                     ValueKind::Binary(bin) => {
                         // println!("{:#?}", bin);
@@ -363,31 +379,49 @@ impl GenerateAsm for FunctionData{
                         // let l = bin.lhs();
                         // let r = bin.rhs();
                         // self.dfg().value(l).kind()
+                        s += "# bin gen\n";
                         self.bin_gen(&mut s, bin, inst);
+                        s += "# bin gen end\n\n";
                     }
                     ValueKind::Store(store) => {
+                        s += "# store gen \n";
                         self.store_gen(&mut s, store, inst);
+                        s += "# store gen end\n\n";
                     }
                     ValueKind::Load(load) => {
+                        s += "# load gen \n";
                         self.load_gen(&mut s, load, inst);
+                        s += "# load gen end\n\n";
                     }
                     ValueKind::Alloc(alloc) => {
+                        s += "# alloc gen\n";
                         self.alloc_gen(&mut s, alloc, inst);
+                        s += "# alloc gen end\n\n";
                     }
                     ValueKind::Branch(branch) => {
+                        s += "# branch gen\n";
                         self.branch_gen(&mut s, branch, inst);
+                        s += "# branch gen end\n\n";
                     }
                     ValueKind::Jump(jump) => {
+                        s += "# jump gen\n";
                         self.jump_gen(&mut s, jump, inst);
+                        s += "# jump gen\n\n";
                     }
                     ValueKind::Call(call) => {
+                        s += "# call gen\n";
                         self.call_gen(&mut s, call, inst);
+                        s += "# call gen end\n\n";
                     }
                     ValueKind::GetElemPtr(get_elem_ptr) => {
+                        s += "# get elem ptr gen\n";
                         self.get_elem_ptr_gen(&mut s, get_elem_ptr, inst);
+                        s += "# get elem ptr gen end\n\n";
                     }
                     ValueKind::GetPtr(get_ptr) => {
+                        s += "# get ptr\n";
                         self.get_ptr(&mut s, get_ptr, inst);
+                        s += "# get ptr end\n";
                     }
                     _ => unreachable!(),
                 }
@@ -402,13 +436,13 @@ impl GenerateAsm for FunctionData{
                             let mut k = global_reg_allocator.lock().unwrap();
                             let mut m = k.get_mut();
                             let (ss, reg) = m.get_offset_reg(sp - 4);
-                            s += &(ss + &format!("\tlw ra, 0(t{})\n", reg));
+                            s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg) + &format!("\tlw ra, 0(t{})\n", reg));
                             m.free_reg(reg);
                         }
                         let mut k = global_reg_allocator.lock().unwrap();
                         let mut m = k.get_mut();
                         let (ss, reg) = m.get_offset_reg(sp_len);
-                        s += &(ss + &format!("\tsub t{}, t{}, sp\n",reg, reg) + &format!("\tadd sp, sp, t{}\n",reg));
+                        s += &(ss + &format!("\tadd sp, sp, t{}\n",reg));
                         m.free_reg(reg);
                         s += &format!("\tret\n\n");
                     }
@@ -437,26 +471,52 @@ impl splitGen for FunctionData {
         let idx = get_ptr.index();
         let mut m = global_reg_allocator.lock().unwrap();
         let g = m.get_mut();
-        let idx_reg = g.alloc_reg().unwrap();
+        let mut idx_reg = 0;
+        let mut ty_size = 0;
+        g.store_type_bound(value, StoreType::Point);
+        let var_type = global_variable_type.lock().unwrap();
+        if let Some((global_var, size)) = var_type.get(&src){
+            if  global_var.as_bytes()[0] == b'*'{
+                println!("this is a global point of array:{}, size is {}", global_var, size);
+                ty_size = *size;
+            }
+        } else {
+            if let TypeKind::Pointer(p) = self.dfg().value(src).ty().kind(){
+                if let TypeKind::Array(ty, size) = p.kind(){
+                    println!("this is a point of array:{}, the size is {}, inner type is {}", self.dfg().value(src).ty().to_string(), size, ty.size());
+                    ty_size = ty.size() as i32 * (*size as i32);
+                } else {
+                    ty_size = 4;
+                }
+            }
+        }
         if let ValueKind::Integer(i) =  self.dfg().value(idx).kind(){
+            idx_reg = g.alloc_reg().unwrap();
             *s += &format!("\tli t{}, {}\n",idx_reg, i.value());
         } else{
-            let (ss, reg) = g.get_offset_reg(g.get_space(idx).unwrap());
-            *s += &(ss + &format!("\tlw t{}, 0(t{})\n",idx_reg, reg));
-            g.free_reg(reg);
+            let mut offset = 0;
+            offset = g.get_space(idx).unwrap();
+            let (ss, reg) = g.get_offset_reg(offset);
+            idx_reg = reg;
+            *s += &(ss + &format!("\tadd t{}, sp, t{}\n",idx_reg, idx_reg)+ &format!("\tlw t{}, 0(t{})\n", idx_reg, idx_reg));
         }
-        let src_reg = g.alloc_reg().unwrap();
+        let mut src_reg = 0;
         if let Some(offset) = g.get_space(src){
             let (ss, reg) = g.get_offset_reg(offset);
-            *s += &(ss + &format!("\tlw t{}, 0(t{})\n",src_reg, reg));
-            g.free_reg(reg);
+            src_reg = reg;
+            if let StoreType::Point = g.store_type.get(&src).unwrap(){
+                *s += &(ss + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg)+ &format!("\tlw t{}, 0(t{})\n\tmv t{}, t{}\n", src_reg, src_reg, src_reg, src_reg));
+            } else {
+                *s += &(ss + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg) + &format!("\tlw t{}, 0(t{})\n", src_reg, src_reg));
+            }
         } else {
             let mut m = global_varable.lock().unwrap();
-            let mut g = m.get_mut(&src).unwrap();
-            *s += &format!("\tlw t{}, {}\n",src_reg, g);
+            let mut k = m.get_mut(&src).unwrap();
+            src_reg = g.alloc_reg().unwrap();
+            *s += &format!("\tla t{}, {}\n",src_reg, k[1..].to_string());
         }
         let type_size_reg = g.alloc_reg().unwrap();
-        *s += &format!("\tli t{}, 4\n", type_size_reg);
+        *s += &format!("\tli t{}, {}\n", type_size_reg, ty_size);
         *s += &format!("\tmul t{}, t{}, t{}\n",idx_reg, idx_reg, type_size_reg);
         g.free_reg(type_size_reg);
         let mut rst_reg = 0;
@@ -469,7 +529,7 @@ impl splitGen for FunctionData {
         let mut offset = 0;
         offset = g.get_space(value).unwrap();
         let (ss, reg) = g.get_offset_reg(offset);
-        *s += &(ss + &format!("\tsw t{}, 0(t{})\n", rst_reg,  reg));
+        *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tsw t{}, 0(t{})\n", rst_reg,  reg));
         g.free_reg(reg);
         // g.free_reg(s0);
         g.free_reg(rst_reg);
@@ -482,44 +542,62 @@ impl splitGen for FunctionData {
         let mut src_reg = 0;
         let mut m = global_reg_allocator.lock().unwrap();
         let g = m.get_mut();
-        idx_reg = g.alloc_reg().unwrap();
+        let mut ty_size = 0;
+        g.store_type_bound(value, StoreType::Point);
+        let var_type = global_variable_type.lock().unwrap();
+        if let Some((global_var, size)) = var_type.get(&src){
+            if  global_var.as_bytes()[0] == b'*'{
+                println!("this is a global point of array:{}, size is {}", global_var, size);
+                ty_size = *size;
+            }
+        } else {
+            if let TypeKind::Pointer(p) = self.dfg().value(src).ty().kind(){
+                if let TypeKind::Array(ty, size) = p.kind(){
+                    println!("this is a point of array, the size is {}, inner type is {}", size, ty.size());
+                    ty_size = ty.size() as i32;
+                }
+            }
+        }
         if let ValueKind::Integer(i) =  self.dfg().value(idx).kind(){
+            idx_reg = g.alloc_reg().unwrap();
             *s += &format!("\tli t{}, {}\n",idx_reg, i.value());
         } else{
             let mut offset = 0;
             offset = g.get_space(idx).unwrap();
             let (ss, reg) = g.get_offset_reg(offset);
-            *s += &(ss + &format!("\tlw t{}, 0(t{})\n", reg, reg));
+            idx_reg = reg;
+            *s += &(ss + &format!("\tadd t{}, sp, t{}\n",idx_reg, idx_reg)+ &format!("\tlw t{}, 0(t{})\n", idx_reg, idx_reg));
             // *s += &format!("\tlw t{}, {}(sp)\n",idx_reg, g.get_space(idx).unwrap());
-            g.free_reg(reg);
         }
-        src_reg = g.alloc_reg().unwrap();
         if let Some(offset) = g.get_space(src){
             // let offset = g.get_space(value).unwrap();
             let (ss, reg) = g.get_offset_reg(offset);
-            *s += &(ss + &format!("\tmv t{}, t{}\n", src_reg, reg));
+            src_reg = reg;
+            if let StoreType::Point = g.store_type.get(&src).unwrap(){
+                *s += &(ss + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg)+ &format!("\tlw t{}, 0(t{})\n\tmv t{}, t{}\n", src_reg, src_reg, src_reg, src_reg));
+            } else {
+                *s += &(ss + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg) + &format!("\tmv t{}, t{}\n", src_reg, src_reg));
+            }
             // *s += &format!("\tlw t{}, {}(sp)\n",src_reg, offset);
-            g.free_reg(reg);
         } else {
             let mut m = global_varable.lock().unwrap();
-            let mut g = m.get_mut(&src).unwrap();
-            *s += &format!("\tlw t{}, {}\n",src_reg, g[1..].to_string());
+            let mut k = m.get_mut(&src).unwrap();
+            src_reg = g.alloc_reg().unwrap();
+            *s += &format!("\tla t{}, {}\n",src_reg, k[1..].to_string());
         }
-        type_size_reg = g.alloc_reg().unwrap();
-        *s += &format!("\tli t{}, 4\n", type_size_reg);
+        //todo: 没有添加对大的type_size的特殊处理
+        let type_size_reg = g.alloc_reg().unwrap();
+        *s += &format!("\tli t{}, {}\n", type_size_reg, ty_size); //todo:对不同维度有不同的值，需要判断
         *s += &format!("\tmul t{}, t{}, t{}\n",idx_reg, idx_reg, type_size_reg);
         g.free_reg(type_size_reg);
-        let rst_reg = g.alloc_reg().unwrap();
-        *s += &format!("\tadd t{}, t{}, t{}\n",rst_reg, src_reg, idx_reg);
+        *s += &format!("\tadd t{}, t{}, t{}\n",src_reg, src_reg, idx_reg);
         g.bound_space(value, self.dfg().value(value).ty().size() as i32);
-        g.store_type_bound(value, StoreType::Point);
-        g.free_reg(src_reg);
         g.free_reg(idx_reg);
         let mut offset = g.get_space(value).unwrap();
         let (ss, reg) = g.get_offset_reg(offset);
-        *s += &(ss + &format!("\tsw t{}, 0(t{})\n", rst_reg, reg));
+        *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tsw t{}, 0(t{})\n", src_reg, reg));
         g.free_reg(reg);
-        g.free_reg(rst_reg);
+        g.free_reg(src_reg);
     }
     fn call_gen(&self, s: &mut String, call: &Call, value: Value) {
         let arg_vec = call.args();
@@ -536,7 +614,7 @@ impl splitGen for FunctionData {
                 src_offset = g.get_space(arg_vec[idx]).unwrap();
                 reg_idx = g.alloc_reg().unwrap();
                 let (ss, reg) = g.get_offset_reg(src_offset);
-                *s += &(ss + &format!("\tlw t{}, 0(t{})\n\tmv a{}, t{}\n", reg_idx, reg, i,
+                *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw t{}, 0(t{})\n\tmv a{}, t{}\n", reg_idx, reg, i,
                                reg_idx));
                 g.free_reg(reg_idx);
                 g.free_reg(reg);
@@ -550,7 +628,7 @@ impl splitGen for FunctionData {
                 tmp = g.alloc_reg().unwrap();
                 let offset = ((idx - 8) * 4) as i32;
                 let (ss, reg) = g.get_offset_reg(offset);
-                *s += &(ss + &(format!("\tli t{}, {}\n",tmp , i.value()) + &format!("\tsw t{}, 0(t{})\
+                *s += &(ss +&format!("\tadd t{}, sp, t{}\n",reg, reg)+ &(format!("\tli t{}, {}\n",tmp , i.value()) +  &format!("\tsw t{}, 0(t{})\
                 \n", tmp,  reg)));
                 g.free_reg(reg);
                 g.free_reg(tmp);
@@ -562,7 +640,7 @@ impl splitGen for FunctionData {
                 let (src_ss, src_reg) = g.get_offset_reg(src_offset);
                 let offset = ((idx - 8) * 4) as i32;
                 let (ss, reg) = g.get_offset_reg(offset);
-                *s += &(src_ss + &format!("\tlw t{}, 0(t{})\n", reg_idx,  src_reg)+ &ss + &format!("\tsw t{}, 0\
+                *s += &(src_ss + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg)+ &format!("\tlw t{}, 0(t{})\n", reg_idx,  src_reg)+ &ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tsw t{}, 0\
                 (t{})\n",
                                                                            reg_idx, reg));
 
@@ -580,10 +658,10 @@ impl splitGen for FunctionData {
         if a == "i32"{
             let mut offset = 0;
             g.bound_space(value, 4);
-            g.store_type_bound(value, StoreType::value);
+            g.store_type_bound(value, StoreType::Value);
             offset = g.get_space(value).unwrap();
             let (ss, reg) = g.get_offset_reg(offset);
-            *s += &(ss + &format!("\tsw a0, 0(t{})\n", reg));
+            *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tsw a0, 0(t{})\n", reg));
             g.free_reg(reg);
         }
     }
@@ -600,7 +678,7 @@ impl splitGen for FunctionData {
                     let mut offset = 0;
                     offset = r.get_space(val).unwrap();
                     let (ss, reg) = r.get_offset_reg(offset);
-                    *s += &(ss + &format!("\tlw a0, 0(t{})\n", reg));
+                    *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw a0, 0(t{})\n", reg));
                     r.free_reg(reg);
                 }
             }
@@ -619,12 +697,15 @@ impl splitGen for FunctionData {
         let mut r = g.borrow_mut().get_mut();
         size = self.dfg().value(value).ty().size() as i32;
         r.bound_space(value, size);
-        r.store_type_bound(value, StoreType::value);
+        r.store_type_bound(value, StoreType::Value);
         let mut tmp_r:i32 = 0;
         let mut tmp_l:i32 = 0;
+        let mut r_use_x0 = false;
+        let mut l_use_x0 = false;
         if let ValueKind::Integer(i) = self.dfg().value(r_value).kind(){
             if(i.value() == 0) {
                 r_s = format!("x0");
+                r_use_x0 = true;
             } else {
                 tmp_r = r.alloc_reg().unwrap();
                 *s += &format!("\tli t{}, {}\n", tmp_r,i.value());
@@ -632,18 +713,17 @@ impl splitGen for FunctionData {
             }
         } else {
             let mut offset = 0;
-            {
-                tmp_r = r.alloc_reg().unwrap();
-                offset = r.get_space(r_value).unwrap();
-            }
+            tmp_r = r.alloc_reg().unwrap();
+            offset = r.get_space(r_value).unwrap();
             let (ss, reg) = r.get_offset_reg(offset);
-            *s += &(ss + &format!("\tlw t{}, 0(t{})\n", tmp_r, reg));
+            *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw t{}, 0(t{})\n", tmp_r, reg));
             r_s = format!("t{}", tmp_r);
             r.free_reg(reg);
         }
         if let ValueKind::Integer(i) = self.dfg().value(l_value).kind(){
             if(i.value() == 0){
                 l_s = format!("x0");
+                l_use_x0 = true;
             } else {
                 tmp_l = r.alloc_reg().unwrap();
                 *s += &format!("\tli t{}, {}\n", tmp_l, i.value());
@@ -654,7 +734,7 @@ impl splitGen for FunctionData {
             let mut offset = 0;
             offset = r.get_space(l_value).unwrap();
             let (ss, reg) = r.get_offset_reg(offset);
-            *s += &(ss + &format!("\tlw t{}, 0(t{})\n", tmp_l, reg));
+            *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw t{}, 0(t{})\n", tmp_l, reg));
             l_s = format!("t{}", tmp_l);
             r.free_reg(reg);
             // r.free_reg(tmp_l);
@@ -683,7 +763,7 @@ impl splitGen for FunctionData {
             },
             BinaryOp::Eq => {
                 let tmp = r.alloc_reg().unwrap();
-                *s += &format!("\txor t{}, t{}, t{}\n", tmp, tmp_l, tmp_r);
+                *s += &format!("\txor t{}, {}, {}\n", tmp, l_s, r_s);
                 *s += &format!("\tseqz t{}, t{}\n", idx, tmp);
                 r.free_reg(tmp);
             },
@@ -697,7 +777,7 @@ impl splitGen for FunctionData {
             },
             BinaryOp::NotEq => {
                 let tmp = r.alloc_reg().unwrap();
-                *s += &format!("\txor t{}, t{}, t{}\n", tmp, tmp_l, tmp_r);
+                *s += &format!("\txor t{}, {}, {}\n", tmp, l_s, r_s);
                 *s += &format!("\tsnez t{}, t{}\n", idx, tmp);
                 r.free_reg(tmp);
             },
@@ -705,7 +785,7 @@ impl splitGen for FunctionData {
                 bin_operation = "slt".to_string();
                 let tmp = r.alloc_reg().unwrap();
                 let tmp1 = r.alloc_reg().unwrap();
-                *s += &format!("\txor t{}, t{}, t{}\n", tmp, tmp_l, tmp_r);
+                *s += &format!("\txor t{}, {}, {}\n", tmp, l_s, r_s);
                 *s += &format!("\tseqz t{}, t{}\n", idx, tmp);
                 *s += &format!("\t{} t{}, {}, {}\n", bin_operation, tmp1, l_s, r_s);
                 *s += &format!("\tor t{}, t{}, t{}\n", idx, tmp, tmp1);
@@ -724,21 +804,25 @@ impl splitGen for FunctionData {
                 bin_operation = "slt".to_string();
                 let tmp = r.alloc_reg().unwrap();
                 let tmp1 = r.alloc_reg().unwrap();
-                *s += &format!("\txor t{}, t{}, t{}\n", tmp, tmp_l, tmp_r);
+                *s += &format!("\txor t{}, {}, {}\n", tmp, l_s, r_s);
                 *s += &format!("\tseqz t{}, t{}\n", idx, tmp);
                 *s += &format!("\t{} t{}, {}, {}\n", bin_operation, tmp1, r_s, l_s);
-                *s += &format!("\tor t{}, t{}, t{}\n", idx, tmp, tmp1);
+                *s += &format!("\tor t{}, t{}, t{}\n", idx, idx, tmp1);
                 r.free_reg(tmp);
                 r.free_reg(tmp1);
             }
             _ => bin_operation = "".to_string()
         }
-        r.free_reg(tmp_l);
-        r.free_reg(tmp_r);
+        if !l_use_x0{
+            r.free_reg(tmp_l);
+        }
+        if !r_use_x0{
+            r.free_reg(tmp_r);
+        }
         let mut offset = 0;
         offset = r.get_space(value).unwrap();
         let (ss, reg) = r.get_offset_reg(offset);
-        *s += &(ss + &format!("\tsw t{}, 0(t{})\n", idx, reg));
+        *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tsw t{}, 0(t{})\n", idx, reg));
         r.free_reg(idx);
         r.free_reg(reg);
     }
@@ -751,16 +835,16 @@ impl splitGen for FunctionData {
         let mut m = global_reg_allocator.lock().unwrap();
         let mut g = m.get_mut();
         g.bound_space(value, size);
-        g.store_type_bound(value, StoreType::value);
+        g.store_type_bound(value, StoreType::Value);
         offset = g.get_space(value).unwrap();
         if let Some(src_offset) = g.get_space(src_value){
             let (src_ss, src_reg) = g.get_offset_reg(src_offset);
             let (ss, reg) = g.get_offset_reg(offset);
             if let StoreType::Point = g.store_type.get(&src_value).unwrap(){
-                *s += &(src_ss + &(format!("\tlw t{}, 0(t{})\n",src_reg, src_reg)  + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg)+ &format!("\tlw t{}, 0(t{})\n", src_reg, src_reg) + &ss + &format!("\tsw t{}, 0(t{})\n",
+                *s += &(src_ss + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg) + &(format!("\tlw t{}, 0(t{})\n",src_reg, src_reg) +&format!("\tlw t{}, 0(t{})\n", src_reg, src_reg) + &ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tsw t{}, 0(t{})\n",
                                                                                                                                                                                                           src_reg, reg)));
             } else {
-                *s += &(src_ss + &(format!("\tlw t{}, 0(t{})\n",src_reg, src_reg)  + &ss + &format!("\tsw t{}, 0(t{})\n",
+                *s += &(src_ss + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg)+ &(format!("\tlw t{}, 0(t{})\n",src_reg, src_reg)  + &ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tsw t{}, 0(t{})\n",
                                                                                                     src_reg, reg)));
             }
             g.free_reg(reg);
@@ -768,11 +852,11 @@ impl splitGen for FunctionData {
         } else if let Some(name) = var.get(&src_value){
             let tmp_reg = g.alloc_reg().unwrap();
             let (ss, reg) = g.get_offset_reg(offset);
-            *s += &(ss + &format!("\tla t{}, {}\n\tlw t{}, 0(t{})\n\tsw t{}, 0(t{})\n",tmp_reg, name[1..] .to_string(), reg_idx, tmp_reg,reg_idx,reg));
+            *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tla t{}, {}\n\tlw t{}, 0(t{})\n\tsw t{}, 0(t{})\n",tmp_reg, name[1..] .to_string(), tmp_reg, tmp_reg,tmp_reg,reg));
             g.free_reg(tmp_reg);
             g.free_reg(reg);
         }
-        g.free_reg(reg_idx);
+        // g.free_reg(reg_idx);
     }
     fn store_gen(&self, s: &mut String, store: &Store, value: Value) {
         let value = store.value();
@@ -784,13 +868,14 @@ impl splitGen for FunctionData {
         if let Some(offset) = g.get_space(dest){
             if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
                 let (ss, reg)  = g.get_offset_reg(offset);
-                let tmp = g.alloc_reg().unwrap();
                 if let StoreType::Point = g.store_type.get(&dest).unwrap(){
-                    *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &ss + &format!("\tlw t{}, 0(t{})\
-                \n", tmp, reg) +&format!("\tadd t{}, sp, t{}\n", tmp, tmp)+ &format!("\tsw t{}, 0(t{})\n", reg_idx, tmp));
+                    let tmp = g.alloc_reg().unwrap();
+                    *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw t{}, 0(t{})\
+                \n", tmp, reg) + &format!("\tsw t{}, 0(t{})\n", reg_idx, tmp));
+                    //+&format!("\tadd t{}, sp, t{}\n", tmp, tmp)
                     g.free_reg(tmp);
                 } else {
-                    *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &ss + &format!("\tsw t{}, 0(t{})\
+                    *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tsw t{}, 0(t{})\
                 \n", reg_idx, reg));
                 }
                 g.free_reg(reg);
@@ -801,7 +886,7 @@ impl splitGen for FunctionData {
                     ValueKind::FuncArgRef(func_arg_ref) => {
                         if func_arg_ref.index() < 8{
                             let (ss, reg) = g.get_offset_reg(offset);
-                            *s += &(ss +   &format!("\tsw a{}, 0(t{})\n", func_arg_ref.index(), reg));
+                            *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg) +  &format!("\tsw a{}, 0(t{})\n", func_arg_ref.index(), reg));
                             g.free_reg(reg);
                         } else {
                             let mut k = now_sp_size.lock().unwrap();
@@ -809,7 +894,7 @@ impl splitGen for FunctionData {
                             let src_offset = *sp_size + 4 * (func_arg_ref.index() as i32 - 8);
                             let (src_ss, src_reg) = g.get_offset_reg(src_offset);
                             let (ss, reg) = g.get_offset_reg(offset);
-                            *s += &(src_ss + &ss  +&format!("\tlw t{}, 0(t{})\n\tsw t{}, 0(t{})\n",reg_idx, src_reg, reg_idx, reg));
+                            *s += &(src_ss + &ss  + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg)+&format!("\tlw t{}, 0(t{})\n\tsw t{}, 0(t{})\n",reg_idx, src_reg, reg_idx, reg));
                             g.free_reg(reg);
                             g.free_reg(src_reg);
                         }
@@ -818,7 +903,11 @@ impl splitGen for FunctionData {
                         let src_offset = g.get_space(value).unwrap();
                         let (ss, reg) = g.get_offset_reg(offset);
                         let (src_ss, src_reg) = g.get_offset_reg(src_offset);
-                        *s += &(src_ss + &format!("\tlw t{}, 0(t{})\n", src_reg, src_reg) + &ss  + &format!("\tsw t{}, 0(t{})\n", src_reg, reg));
+                        if let StoreType::Point = g.store_type.get(&dest).unwrap() {
+                            *s += &(src_ss + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg)+ &format!("\tlw t{}, 0(t{})\n", src_reg, src_reg) + &ss  + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw t{}, 0(t{})\n", reg, reg) + &format!("\tsw t{}, 0(t{})\n", src_reg, reg));
+                        } else {
+                            *s += &(src_ss + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg)+ &format!("\tlw t{}, 0(t{})\n", src_reg, src_reg) + &ss  + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tsw t{}, 0(t{})\n", src_reg, reg));
+                        }
                         g.free_reg(reg);
                         g.free_reg(src_reg);
                     }
@@ -828,9 +917,7 @@ impl splitGen for FunctionData {
             if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
                 let tmp_reg = g.alloc_reg().unwrap();
                 *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &format!("\tla t{}, \
-                {}\n\tlw t{}, 0(t{})\n\tsw t{}, 0(t{})\n", tmp_reg, name[1..].to_string(), reg_idx,
-                                                                                tmp_reg,reg_idx,
-                    tmp_reg));
+                {}\n\tsw t{}, 0(t{})\n", tmp_reg, name[1..].to_string(), reg_idx, tmp_reg));
                 g.free_reg(tmp_reg);
             } else {
                 //todo 传参数
@@ -847,7 +934,7 @@ impl splitGen for FunctionData {
                             let sp_size = k.get_mut();
                             let offset = *sp_size + 4 * (func_arg_ref.index() as i32 - 8);
                             let (ss, reg) = g.get_offset_reg(offset);
-                            *s += &(ss + &format!("\tlw t{}, 0(t{})\n\tla t{}, {}\n\tsw t{}, 0(t{})\n", reg, reg,  tmp, name[1..].to_string(),reg, tmp));
+                            *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg) + &format!("\tlw t{}, 0(t{})\n\tla t{}, {}\n\tsw t{}, 0(t{})\n", reg, reg,  tmp, name[1..].to_string(),reg, tmp));
                             g.free_reg(tmp);
                             g.free_reg(reg);
                         }
@@ -856,7 +943,7 @@ impl splitGen for FunctionData {
                         let src_offset = g.get_space(value).unwrap();
                         let tmp = g.alloc_reg().unwrap();
                         let (ss, reg) = g.get_offset_reg(src_offset);
-                        *s += &(ss + &format!("\tlw t{}, 0(t{})\n\tla t{}, {}\n",reg, reg,
+                        *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw t{}, 0(t{})\n\tla t{}, {}\n",reg, reg,
                                         tmp, name[1..].to_string()) + &format!("\tsw t{}, 0(t{})\n", reg, tmp));
                         g.free_reg(tmp);
                         g.free_reg(reg);
@@ -875,14 +962,14 @@ impl splitGen for FunctionData {
             let i32_type = Type::get_i32();
             if i32_type == *type_id{
                 size = 4;
-                g.store_type_bound(value, StoreType::value);
+                g.store_type_bound(value, StoreType::Value);
             } else {
                 if let TypeKind::Array(arr_type, arr_size) = type_id.kind(){
                     size = *arr_size as i32 * arr_type.size() as i32;
-                    g.store_type_bound(value, StoreType::value);
+                    g.store_type_bound(value, StoreType::Value);
                 } else if let TypeKind::Pointer(inner_type) = type_id.kind(){
                     size = type_id.size() as i32;
-                    g.store_type_bound(value, StoreType::Point);
+                    g.store_type_bound(value, StoreType::Value); //todo: change point into value
                 } else {
                     unreachable!();
                 }
@@ -906,7 +993,7 @@ impl splitGen for FunctionData {
         let reg_idx = g.borrow_mut().alloc_reg().unwrap();
         if let Some(offset) = g.borrow_mut().get_space(cond){
             let (ss, reg) = g.get_offset_reg(offset);
-            *s +=  &(ss + &format!("\tlw t{}, 0(t{})\n",reg_idx, reg));
+            *s +=  &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw t{}, 0(t{})\n",reg_idx, reg));
             g.free_reg(reg);
         } else if let Integer(i) = self.dfg().value(cond).kind(){
             *s += &format!("\tli t{}, {}\n", reg_idx, i.value());

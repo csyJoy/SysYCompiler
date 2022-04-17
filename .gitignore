@@ -1,6 +1,2 @@
 /target
-hello.S
-hello.c
-hello.S
-hello
-hello.o
+hello*
