@@ -856,18 +856,22 @@ impl GetKoopa for FuncDef{
         }
         let mut s0 =  "".to_string();
         let mut scope = false;
+        let mut has_params = false;
         if let Some(params) = &self.params{
             s0 += &params.alloc_local_var();
             scope = true;
+            has_params = true;
         } else {
             s0 = "".to_string();
         }
         let s1 = &(sr + &s0 + &self.block.get_koopa());
         let idx = add_reg_idx();
         let sv = s1.split("\n").collect::<Vec<&str>>();
-        let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-        let mut g = m.borrow_mut().get_mut();
-        g.deallocate_symbol_table();
+        if has_params {
+            let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+            let mut g = m.borrow_mut().get_mut();
+            g.deallocate_symbol_table();
+        }
         //todo: 没有处理return 是void的情况
         if sv.len() >=2 {
             let len = (sv.len() - 2) as usize;
@@ -1524,7 +1528,7 @@ impl GetKoopa for PrimaryExp{
                let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                let mut m = g.borrow_mut().get_mut();
                let mut k = m.now_symbol.as_ref().unwrap().lock().unwrap();
-               if (const_bool || global_bool) && !var_bool{
+               if const_bool ||( global_bool && !var_bool){
                     format!("{}", k.get_value(&a.ident))
                } else if let Some(symbol_id) = k.exist_var_symbol(&a.ident){
                    let unique_name = format!("{}_{}", a.ident, symbol_id);
@@ -2270,7 +2274,7 @@ impl GetKoopa for ConstDecl{
         }
         if let Some(v) = &self.const_def_vec{
             for q in v{
-                if let Some(a) = self.const_def.eval_const(){
+                if let Some(a) = q.eval_const(){
                     let Value::Int(i) = a;
                     let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                     let mut g = m.borrow_mut().get_mut();
