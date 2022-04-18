@@ -65,6 +65,14 @@ fn try_main() -> Result<()> {
         // println!("{:#?}", program.func_layout());
         let ir = program.generate();
         file.write(ir.as_bytes());
+    } else if mode == "-perf"{
+        let ir = ast.get_koopa();
+        println!("{}", ir);
+        let driver = koopa::front::Driver::from(ir);
+        let program = driver.generate_program().unwrap();
+        // println!("{:#?}", program.func_layout());
+        let ir = program.generate();
+        file.write(ir.as_bytes());
     }
     Ok(())
 }

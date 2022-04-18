@@ -707,9 +707,10 @@ impl FuncParams{
         let mut btype = &self.param.btype;
         let mut idx = &self.param.array_idx;
         let mut s_type = "".to_string();
-        let mut o = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-        let mut g = o.borrow_mut().get_mut().allocate_symbol_table();
-        let mut S = g.lock().unwrap();
+        {
+            let mut o = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+            let mut g = o.borrow_mut().get_mut().allocate_symbol_table();
+        }
         match btype{
             BType::Int => {
                 if let Some(array_idx) = idx{
@@ -735,13 +736,23 @@ impl FuncParams{
                     for i in (0..array_idx.const_exp.len() + 1){
                         vec.push(0);
                     }
-                    S.insert_raw_point_symbol((&ident).to_string(), &vec);
-                    let s = S.symbol_id;
+                    let mut s = -9999;
+                    {
+                        let mut o = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                        let mut S = o.borrow_mut().get_mut().now_symbol.as_mut().unwrap().lock().unwrap();
+                        S.insert_raw_point_symbol((&ident).to_string(), &vec);
+                        s = S.symbol_id;
+                    }
                     s_type += &format!("\t@{}_{} = alloc {}\n\tstore %{}, @{}_{}\n", ident, s,
                         sss, ident, ident, s);
                 }else {
-                    S.insert_var_symbol((&ident).to_string(),None);
-                    let s = S.symbol_id;
+                    let mut s = -9999;
+                    {
+                        let mut o = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                        let mut S = o.borrow_mut().get_mut().now_symbol.as_mut().unwrap().lock().unwrap();
+                        S.insert_var_symbol((&ident).to_string(),None);
+                        s = S.symbol_id;
+                    }
                     s_type += &format!("\t@{}_{} = alloc i32\n\tstore %{}, @{}_{}\n", ident, s, ident,
                                        ident, s);
                 }
@@ -765,6 +776,7 @@ impl FuncParams{
                             } else {
                                 for a in &array_idx.const_exp{
                                     let idx = a.exp.eval_const().unwrap();
+
                                     let Value::Int(i) = idx;
                                     if first{
                                         ss = format!("[i32, {}]", i);
@@ -778,13 +790,23 @@ impl FuncParams{
                             for i in (0..array_idx.const_exp.len() + 1){
                                 vec.push(0);
                             }
-                            S.insert_raw_point_symbol((&ident).to_string(), &vec);
-                            let s = S.symbol_id;
+                            let mut s = -9999;
+                            {
+                                let mut o = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                                let mut S = o.borrow_mut().get_mut().now_symbol.as_mut().unwrap().lock().unwrap();
+                                S.insert_raw_point_symbol((&ident).to_string(), &vec);
+                                s = S.symbol_id;
+                            }
                             s_type += &format!("\t@{}_{} = alloc {}\n\tstore %{}, @{}_{}\n", ident, s,
                                                sss, ident, ident, s);
                         }else {
-                            S.insert_var_symbol((&ident).to_string(),None);
-                            let s = S.symbol_id;
+                            let mut s = -9999;
+                            {
+                                let mut o = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
+                                let mut S = o.borrow_mut().get_mut().now_symbol.as_mut().unwrap().lock().unwrap();
+                                S.insert_var_symbol((&ident).to_string(),None);
+                                s = S.symbol_id;
+                            }
                             s_type += &format!("\t@{}_{} = alloc i32\n\tstore %{}, @{}_{}\n", ident, s, ident,
                                                ident, s);
                         }
@@ -2705,8 +2727,9 @@ impl EvalConst for PrimaryExp{
                     let mut k = g.borrow_mut().get_mut();
                     let mut gg = k.global_symbol_table.as_ref().unwrap().lock().unwrap();
                     global_bool = gg.exist_global_inited_symbol(&tmp.ident);
+
                 }
-                if  const_bool || global_bool{
+                if  const_bool { //todo: 将global的条件给去掉了，因为global还是会被修改的
                     let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                     let mut k = g.borrow_mut().get_mut();
                     let mut s = k.now_symbol.as_ref().unwrap().lock().unwrap();
