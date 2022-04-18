@@ -15,6 +15,7 @@ use crate::frontEnd::GLOBAL_SYMBOL_TABLE_ALLOCATOR;
 use crate::frontEnd::REG_INDEX;
 use std::sync::Arc;
 use crate::frontEnd::ir_marco::{lor_code_gen, land_code_gen};
+use std::hint::unreachable_unchecked;
 lazy_static!{
     static ref global_branch_count:Arc<Mutex<RefCell<i32>>> = Arc::new(Mutex::new(RefCell::new(1)));
     static ref global_return_switch:Arc<Mutex<RefCell<bool>>> = Arc::new(Mutex::new(RefCell::new
@@ -25,6 +26,8 @@ lazy_static!{
         (true)));
     static ref now_function_name:Arc<Mutex<RefCell<String>>> = Arc::new(Mutex::new(RefCell::new
         ("".to_string())));
+
+    static ref initialier_switch: Arc<Mutex<RefCell<bool>>> = Arc::new(Mutex::new(RefCell::new(false)));
 }
 pub fn get_while() -> i32{
     let mut g = global_while_count.lock().unwrap();
@@ -211,26 +214,25 @@ impl VarDecl{
 }
 
 
-fn generate_const_init_val(array_init: &Box<ConstArrayInit>, dim_vec: &Vec<i32>, now_count: &mut
-                           i32, mut total_count: i32)
-                     -> Vec<i32>{
+fn generate_const_init_val(array_init: &Box<ConstArrayInit>, dim_vec: &Vec<i32>, now_count: &mut i32, mut total_count: i32, first: bool) -> Vec<i32>{
     // 观察当前initVal是否是一个exp，如果是的话就直接加
     let mut result: Vec<i32> = Vec::new();
     let mut now_dim = 1;
     let mut count = 0;
+    let mut layer_count = 0;
     let init = &array_init.array_init;
-    let mut s = "".to_string();
     if let Some(exp) = &init.const_exp{
         let val = exp.exp.eval_const().unwrap();
         let Value::Int(i) = val;
         result.push(i);
-        s += &format!(", {}" ,i);
         count = count + 1;
         total_count += 1;
     } else if let Some(array_init_vec) = &init.array_init_vec{
         //迭代进入下一层了
+        //todo: 没有对列表初始化的错误情况进行处理，现在默认都是对的
+        layer_count = count;
         result.append(&mut generate_const_init_val(&array_init_vec, dim_vec, &mut count,
-                                                 total_count));
+                                                 total_count, false));
         let mut align = dim_vec[0];
         let mut tmp = total_count;
         if tmp == 0{
@@ -245,7 +247,35 @@ fn generate_const_init_val(array_init: &Box<ConstArrayInit>, dim_vec: &Vec<i32>,
             }
         }
         total_count += count;
-        while count < align {
+        if count == 1 && !first{
+            count = layer_count + 1;
+        } else {
+            while count < align {
+                result.push(0);
+                count += 1;
+                total_count += 1;
+            }
+            now_dim = 1;
+            count = 0;
+        }
+    } else {
+        count = 0;
+        let mut align = dim_vec[0];
+        let mut tmp = total_count;
+        if tmp == 0{
+            align = dim_vec.iter().fold(1, |product, x| x * product);
+            align /= dim_vec[dim_vec.len() - 1];
+        } else if total_count % align == 0{
+            tmp /= dim_vec[0];
+            while now_dim < dim_vec.len() && count % dim_vec[now_dim] == 0{
+                align = align * dim_vec[now_dim];
+                tmp /= dim_vec[now_dim];
+                now_dim = now_dim + 1;
+            }
+            align /= dim_vec[dim_vec.len()-1];
+        }
+        // count != 0 是因为要防止for中的{}在一个都没有添加前就添加0
+        while  count < align {
             result.push(0);
             count += 1;
             total_count += 1;
@@ -263,8 +293,9 @@ fn generate_const_init_val(array_init: &Box<ConstArrayInit>, dim_vec: &Vec<i32>,
                 total_count += 1;
             } else if let Some(array_init_vec) = &k.array_init_vec{
                 //迭代进入下一层了
+                layer_count = count;
                 result.append(&mut generate_const_init_val(&array_init_vec, dim_vec, &mut count,
-                                                  total_count));
+                                                  total_count, false));
                 let mut align = dim_vec[0];
                 let mut tmp = total_count;
                 if tmp == 0{
@@ -280,7 +311,35 @@ fn generate_const_init_val(array_init: &Box<ConstArrayInit>, dim_vec: &Vec<i32>,
                 }
                 // count != 0 是因为要防止for中的{}在一个都没有添加前就添加0
                 total_count += count;
-                while count != 0 && count < align {
+                if count == 1 && !first{
+                    count = layer_count + 1;
+                } else {
+                    while count != 0 && count < align {
+                        result.push(0);
+                        count += 1;
+                        total_count += 1;
+                    }
+                    now_dim = 1;
+                    count = 0;
+                }
+            } else {
+                count = 0;
+                let mut align = dim_vec[0];
+                let mut tmp = total_count;
+                if tmp == 0{
+                    align = dim_vec.iter().fold(1, |product, x| x * product);
+                    align /= dim_vec[dim_vec.len() - 1];
+                } else if total_count % align == 0{
+                    tmp /= dim_vec[0];
+                    while now_dim < dim_vec.len() && count % dim_vec[now_dim] == 0{
+                        align = align * dim_vec[now_dim];
+                        tmp /= dim_vec[now_dim];
+                        now_dim = now_dim + 1;
+                    }
+                    align /= dim_vec[dim_vec.len()-1];
+                }
+                // count != 0 是因为要防止for中的{}在一个都没有添加前就添加0
+                while  count < align {
                     result.push(0);
                     count += 1;
                     total_count += 1;
@@ -293,7 +352,154 @@ fn generate_const_init_val(array_init: &Box<ConstArrayInit>, dim_vec: &Vec<i32>,
     *now_count = count;
     result
 }
+enum ValueOrExp{
+    Value(i32),
+    Exp(Exp)
+}
 fn generate_init_val(array_init: &Box<VarArrayInit>, dim_vec: &Vec<i32>,
+                     now_count: &mut i32, mut total_count: i32, first: bool)
+                     -> Vec<ValueOrExp>{
+    // 观察当前initVal是否是一个exp，如果是的话就直接加
+    let mut now_dim = 1;
+    let mut count = 0;
+    let mut layer_count = 0;
+    let init = &array_init.array_init;
+    let mut result: Vec<ValueOrExp> = Vec::new();
+    if let Some(exp) = &init.exp{
+        if let Some(val) = exp.eval_const(){
+            let Value::Int(i) = val;
+            result.push(ValueOrExp::Value(i));
+        } else {
+            result.push(ValueOrExp::Exp(exp.clone()));
+        }
+        count = count + 1;
+        total_count += 1;
+    } else if let Some(array_init_vec) = &init.array_init_vec{
+        //迭代进入下一层了
+        layer_count = count;
+        result.append(&mut generate_init_val(&array_init_vec, dim_vec, &mut count, total_count, false));
+        let mut align = dim_vec[0];
+        let mut tmp = total_count;
+        if tmp == 0 {
+            align = dim_vec.iter().fold(1, |product, x| x * product);
+            align /= dim_vec[dim_vec.len() - 1];
+        }else if tmp % align == 0 {
+            tmp /= dim_vec[0];
+            while now_dim < dim_vec.len() && tmp % dim_vec[now_dim] == 0{
+                align = align * dim_vec[now_dim];
+                tmp /= dim_vec[now_dim];
+                now_dim = now_dim + 1;
+            }
+        }
+        total_count += count;
+        if count == 1 && !first{
+            count = layer_count + 1;
+        } else {
+            while count < align {
+                result.push(ValueOrExp::Value(0));
+                count += 1;
+                total_count += 1;
+            }
+            now_dim = 1;
+            count = 0;
+        }
+    } else {
+        count = 0;
+        let mut align = dim_vec[0];
+        let mut tmp = total_count;
+        if tmp == 0{
+            align = dim_vec.iter().fold(1, |product, x| x * product);
+            align /= dim_vec[dim_vec.len() - 1];
+        } else if total_count % align == 0{
+            tmp /= dim_vec[0];
+            while now_dim < dim_vec.len() && count % dim_vec[now_dim] == 0{
+                align = align * dim_vec[now_dim];
+                tmp /= dim_vec[now_dim];
+                now_dim = now_dim + 1;
+            }
+            align /= dim_vec[dim_vec.len()-1];
+        }
+        // count != 0 是因为要防止for中的{}在一个都没有添加前就添加0
+        while  count < align {
+            result.push(ValueOrExp::Value(0));
+            count += 1;
+            total_count += 1;
+        }
+        now_dim = 1;
+        count = 0;
+    }
+    if !array_init.array_init_vec.is_empty(){
+        for k in &array_init.array_init_vec{
+            if let Some(exp) = &k.exp{
+                if let Some(val) = exp.eval_const(){
+                    let Value::Int(i) = val;
+                    result.push(ValueOrExp::Value(i));
+                } else {
+                    result.push(ValueOrExp::Exp(exp.clone()));
+                }
+                count = count + 1;
+                total_count += 1;
+            } else if let Some(array_init_vec) = &k.array_init_vec{
+                //迭代进入下一层了
+                layer_count = count;
+                result.append(&mut generate_init_val(&array_init_vec, dim_vec, &mut  count,
+                                                     total_count, false));
+                let mut align = dim_vec[0];
+                let mut tmp = total_count;
+                if tmp == 0{
+                    align = dim_vec.iter().fold(1, |product, x| product * x) /
+                        dim_vec[dim_vec.len() - 1];
+                } else if  tmp % align == 0{
+                    tmp /= dim_vec[0];
+                    while now_dim < dim_vec.len() && tmp % dim_vec[now_dim] == 0{
+                        align = align * dim_vec[now_dim];
+                        tmp /= dim_vec[now_dim];
+                        now_dim = now_dim + 1;
+                    }
+                }
+                total_count += count;
+                if count == 1 && !first{
+                    count = layer_count + 1;
+                } else {
+                    while count < align {
+                        result.push(ValueOrExp::Value(0));
+                        count += 1;
+                        total_count += 1;
+                    }
+                    now_dim = 1;
+                    count = 0;
+                }
+            } else {
+                count = 0;
+                let mut align = dim_vec[0];
+                let mut tmp = total_count;
+                if tmp == 0{
+                    align = dim_vec.iter().fold(1, |product, x| x * product);
+                    align /= dim_vec[dim_vec.len() - 1];
+                } else if total_count % align == 0{
+                    tmp /= dim_vec[0];
+                    while now_dim < dim_vec.len() && count % dim_vec[now_dim] == 0{
+                        align = align * dim_vec[now_dim];
+                        tmp /= dim_vec[now_dim];
+                        now_dim = now_dim + 1;
+                    }
+                    align /= dim_vec[dim_vec.len()-1];
+                }
+                // count != 0 是因为要防止for中的{}在一个都没有添加前就添加0
+                while  count < align {
+                    result.push(ValueOrExp::Value(0));
+                    count += 1;
+                    total_count += 1;
+                }
+                now_dim = 1;
+                count = 0;
+            }
+        }
+    }
+    *now_count =  count;
+    result
+}
+fn generate_global_init_val(array_init: &Box<VarArrayInit>, dim_vec: &Vec<i32>,
                      now_count: &mut i32, mut total_count: i32)
     -> Vec<i32>{
     // 观察当前initVal是否是一个exp，如果是的话就直接加
@@ -309,7 +515,7 @@ fn generate_init_val(array_init: &Box<VarArrayInit>, dim_vec: &Vec<i32>,
         total_count += 1;
     } else if let Some(array_init_vec) = &init.array_init_vec{
         //迭代进入下一层了
-        result.append(&mut generate_init_val(&array_init_vec, dim_vec, &mut count, total_count));
+        result.append(&mut generate_global_init_val(&array_init_vec, dim_vec, &mut count, total_count));
         let mut align = dim_vec[0];
         let mut tmp = total_count;
         if tmp == 0 {
@@ -342,7 +548,7 @@ fn generate_init_val(array_init: &Box<VarArrayInit>, dim_vec: &Vec<i32>,
                 total_count += 1;
             } else if let Some(array_init_vec) = &k.array_init_vec{
                 //迭代进入下一层了
-                result.append(&mut generate_init_val(&array_init_vec, dim_vec, &mut  count,
+                result.append(&mut generate_global_init_val(&array_init_vec, dim_vec, &mut  count,
                                                   total_count));
                 let mut align = dim_vec[0];
                 let mut tmp = total_count;
@@ -371,9 +577,7 @@ fn generate_init_val(array_init: &Box<VarArrayInit>, dim_vec: &Vec<i32>,
     *now_count =  count;
     result
 }
-fn init_var_handler(mut result: Vec<i32>, dim_vec: &Vec<i32>) ->
-                                                                                            String
-{
+fn init_var_handler(mut result: Vec<i32>, dim_vec: &Vec<i32>) -> String {
     let mut product = 1;
     let mut count = result.len();
     let total = dim_vec.iter().fold(product, |product, a| product * a);
@@ -386,6 +590,9 @@ fn init_var_handler(mut result: Vec<i32>, dim_vec: &Vec<i32>) ->
         if k == 0{
             let mut s = "".to_string();
             for i in (0..result.len()){
+                if dim_vec[0] == 1{
+                    tmp.push(format!("{{ {} }}", result[i]));
+                }
                 if i % dim_vec[0] as usize == 0{
                     s = "".to_string();
                     s += &format!("{{ {}",result[i]);
@@ -400,10 +607,13 @@ fn init_var_handler(mut result: Vec<i32>, dim_vec: &Vec<i32>) ->
             let len = tmp.len();
             let mut s = "".to_string();
             for i in (0..len){
+                if dim_vec[k] == 1{
+                    tmp.push(format!("{{ {} }}", result[i]));
+                }
                 if i % dim_vec[k] as usize == 0{
                     s = "".to_string();
                     s += &format!("{{ {}",tmp[i]);
-                }else if i % dim_vec[k] as usize == (dim_vec[k] - 1 ) as usize{
+                }else if i % dim_vec[k] as usize == (dim_vec[k] - 1) as usize{
                     s += &format!(", {} }}", tmp[i]);
                     tmp.push(s.clone());
                 } else{
@@ -509,7 +719,7 @@ impl VarDef{
                 if let Some(var_array_init) = &initval.array_init_vec{
                     // dim_idx.reverse();
                     let mut a = 0;
-                    total += &init_var_handler(generate_init_val(var_array_init, &dim_idx, &mut a,
+                    total += &init_var_handler(generate_global_init_val(var_array_init, &dim_idx, &mut a,
                                                                  0), &dim_idx);
                 } else {
                     total += ", zeroinit\n";
@@ -2108,17 +2318,29 @@ impl GetKoopa for VarDef{
                     // dim_idx.reverse();
                     let mut a = 0;
                     let mut vec = generate_init_val(var_array_init, &dim_idx, &mut a,
-                                                0);
+                                                0, true);
                     let product = dim_idx.iter().fold(1, |x, a| x * a);
                     let len = vec.len() as i32;
                     for i in (0..product - len){
-                        vec.push(0);
+                        vec.push(ValueOrExp::Value(0));
                     }
                     let mut idx = 0 as usize;
                     for i in vec{
                         total += &get_localtion(&unique_name, idx, &dim_idx);
-                        total += &format!("\tstore {}, %{}\n",i, get_reg_idx(&total));
-                        idx += 1;
+                        if let ValueOrExp::Value(i) = i{
+                            total += &format!("\tstore {}, %{}\n",i, get_reg_idx(&total));
+                            idx += 1;
+                        } else {
+                            let store_reg = get_reg_idx(&total);
+                            if let ValueOrExp::Exp(exp) = i{
+                                let s = exp.get_koopa();
+                                let reg_idx = get_reg_idx(&s);
+                                total += &(s + &format!("\tstore %{}, %{}\n", reg_idx , store_reg));
+                                idx += 1;
+                            } else {
+                                unreachable!();
+                            }
+                        }
                     }
                 } else {
                     total += "\n";
@@ -2351,7 +2573,7 @@ impl ConstDef{
                     // dim_idx.reverse();
                     let mut a = 0;
                     total += &init_var_handler(generate_const_init_val(const_array_init, &dim_idx,
-                                                                      &mut a, 0), &dim_idx);
+                                                                      &mut a, 0, true), &dim_idx);
                 }
             }
             total
@@ -2412,7 +2634,7 @@ impl GetKoopa for ConstDef{
             let mut dim_idx: Vec<i32> = Vec::new();
             let mut b = self.array_idx.clone();
             b.reverse();
-            for a in &self.array_idx{
+            for a in &b{
                 let idx = a.exp.eval_const().unwrap();
                 let Value::Int(i) = idx;
                 if first{
@@ -2437,7 +2659,7 @@ impl GetKoopa for ConstDef{
                     // dim_idx.reverse();
                     let mut a = 0;
                     let mut vec = generate_const_init_val(const_array_init, &dim_idx, &mut a,
-                                                    0);
+                                                    0, true);
                     let product = dim_idx.iter().fold(1, |x, a| x * a);
                     let len = vec.len() as i32;
                     for i in (0..product - len){

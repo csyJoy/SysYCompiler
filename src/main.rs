@@ -13,8 +13,8 @@ use koopa::ir::Program;
 
 
 mod codeGenerator;
-#[macro_use]
 mod frontEnd;
+mod optim;
 
 use frontEnd::parser::GetKoopa;
 use crate::codeGenerator::code_generator::GenerateAsm;
