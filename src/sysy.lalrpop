@@ -40,9 +40,18 @@ FuncParams: FuncParams = {
     <param: FuncParam> <params: ("," <FuncParam>)*> => FuncParams{<>}
 }
 FuncParam: FuncParam = {
-    <btype: BType> <ident: Ident> => FuncParam{<>}
+    <btype: BType> <ident: Ident> <array_idx: (<ArrayIdx>)?>=> {
+        if let Some(array_idx) = array_idx{
+            FuncParam{btype: btype, ident:ident, array_idx: Some(array_idx)}
+        } else {
+            FuncParam{btype: btype, ident:ident, array_idx: None}
+        }
+    }
 }
 
+ArrayIdx: ArrayIdx = {
+    "[" "]" <const_exp: ("[" <ConstExp> "]")*> => ArrayIdx{ <> }
+}
 
 
 Block: Block = "{" <block_item: (BlockItem)*> "}" => Block { <> };
@@ -63,7 +72,7 @@ MatchedStmt: Stmt = {
     "if" "(" <exp: Exp> ")" <then: MatchedStmt> "else" <else_then: MatchedStmt> => Stmt{stmt_type: StmtType::Branch(
     BranchType::Matched(Box::new((exp, then, else_then))))},
     "while" "(" <exp: Exp> ")" <stmt: MatchedStmt> => Stmt{ stmt_type: StmtType::While(Box::new((<>)))},
-    "return" <exp: Exp> ";" => Stmt { stmt_type: StmtType::Return(<>) },
+    "return" <exp: (Exp)?> ";" => Stmt { stmt_type: StmtType::Return(<>) },
     "break" ";" => Stmt{stmt_type: StmtType::Break},
     "continue" ";" => Stmt{stmt_type: StmtType::Continue}
 }
@@ -106,7 +115,7 @@ RelExp: RelExp = {
     <rel_exp: RelExp> "<=" <add_exp: AddExp> => RelExp{ add_exp: None, rel_operate: Some((Box::new(rel_exp),
     RelOperation::LessEq, Box::new(add_exp)))},
     <rel_exp: RelExp> ">=" <add_exp: AddExp> => RelExp{ add_exp: None, rel_operate: Some((Box::new(rel_exp),
-    RelOperation::Greater, Box::new(add_exp)))},
+    RelOperation::GreaterEq, Box::new(add_exp)))},
 }
 
 EqExp: EqExp = {
@@ -138,7 +147,7 @@ FuncRParams: FuncRParams = {
     <exp: Exp> <exp_vec: ("," <Exp>)*> => FuncRParams{<>}
 }
 Lval: Lval = {
-    <ident: Ident> => Lval{<>}
+    <ident: Ident> <array_idx: ("[" <Exp> "]")*>=> Lval{<>}
 }
 PrimaryExp: PrimaryExp = {
     "(" <exp: Exp> ")" => PrimaryExp{ exp: Some(Box::new(exp)), lval: None, num: None},
@@ -170,13 +179,24 @@ BType: BType = {
     "int" => BType::Int,
 }
 ConstDef: ConstDef = {
-    <ident: Ident> "=" <const_init_val:ConstInitVal> => {
+    <ident: Ident> <array_idx: ("[" <ConstExp> "]")*>"=" <const_init_val:(ConstInitVal)?> => {
         ConstDef{<>}
     }
 }
 ConstInitVal: ConstInitVal = {
-    <const_exp: ConstExp> => ConstInitVal{<>}
+    <const_exp: ConstExp> => ConstInitVal{const_exp: Some(const_exp), array_init_vec: None},
+    "{"<array_init_vec: (<ConstArrayInit>)?>"}" => {
+        if let Some(array_init_vec) = array_init_vec{
+            ConstInitVal{const_exp: None, array_init_vec: Some(Box::new(array_init_vec))}
+        } else {
+            ConstInitVal{const_exp: None, array_init_vec: None}
+        }
+    }
 }
+ConstArrayInit: ConstArrayInit = {
+    <array_init: ConstInitVal> <array_init_vec: ("," <ConstInitVal>)*> => ConstArrayInit{<>}
+}
+
 ConstExp: ConstExp = {
     <exp: Exp> => ConstExp{<>}
 }
@@ -187,10 +207,20 @@ VarDecl: VarDecl = {
     }
 }
 VarDef: VarDef = {
-    <ident: Ident> <initval: ("=" <InitVal>)?> => VarDef{<>}
+    <ident: Ident> <array_init: ("["<ConstExp>"]")*> <initval: ("=" <InitVal>)?> => VarDef{<>}
 }
 InitVal: InitVal = {
-    <exp: Exp> => InitVal{ exp: exp }
+    <exp: Exp> => InitVal{ exp: Some(exp) , array_init_vec: None},
+    "{" <array_init: (<VarArrayInit>)? > "}" =>{
+        if let Some(array_init) = array_init{
+            InitVal{exp: None, array_init_vec: Some(Box::new(array_init))}
+        } else {
+            InitVal{exp: None, array_init_vec: None}
+        }
+    }
+}
+VarArrayInit: VarArrayInit = {
+    <array_init: InitVal> <array_init_vec: ("," <InitVal>)*> => VarArrayInit{<>}
 }
 
 
