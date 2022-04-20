@@ -788,7 +788,7 @@ impl splitGen for FunctionData {
                 *s += &format!("\txor t{}, {}, {}\n", tmp, l_s, r_s);
                 *s += &format!("\tseqz t{}, t{}\n", idx, tmp);
                 *s += &format!("\t{} t{}, {}, {}\n", bin_operation, tmp1, l_s, r_s);
-                *s += &format!("\tor t{}, t{}, t{}\n", idx, tmp, tmp1);
+                *s += &format!("\tor t{}, t{}, t{}\n", idx, idx, tmp1);
                 r.free_reg(tmp);
                 r.free_reg(tmp1);
             },
