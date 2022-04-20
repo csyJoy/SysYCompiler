@@ -2342,8 +2342,31 @@ impl GetKoopa for VarDef{
                             }
                         }
                     }
-                } else {
-                    total += "\n";
+                } else { //todo: 对数组变量的0初始化？
+                    let mut vec: Vec<ValueOrExp> = Vec::new();
+                    let product = dim_idx.iter().fold(1, |x, a| x * a);
+                    for i in (0..product){
+                        vec.push(ValueOrExp::Value(0));
+                    }
+                    let mut idx = 0;
+                    for i in vec{
+                        total += &get_localtion(&unique_name, idx, &dim_idx);
+                        if let ValueOrExp::Value(i) = i{
+                            total += &format!("\tstore {}, %{}\n",i, get_reg_idx(&total));
+                            idx += 1;
+                        } else {
+                            let store_reg = get_reg_idx(&total);
+                            if let ValueOrExp::Exp(exp) = i{
+                                let s = exp.get_koopa();
+                                let reg_idx = get_reg_idx(&s);
+                                total += &(s + &format!("\tstore %{}, %{}\n", reg_idx , store_reg));
+                                idx += 1;
+                            } else {
+                                unreachable!();
+                            }
+                        }
+                    }
+                    // total += "\n";
                 }
             } else {
                 total += "\n";
