@@ -28,6 +28,7 @@ impl CfgInner{
     }
 }
 
+#[test]
 impl Cfg{
     fn build_cfg(code: String) -> Vec<Cfg>{
         let split_code = code.split("\n").collect::<Vec<&str>>();
