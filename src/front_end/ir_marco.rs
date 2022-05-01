@@ -1,6 +1,6 @@
 use parser::add_branch_count;
 use parser::add_reg_idx;
-use crate::frontEnd::parser;
+use crate::front_end::parser;
 
 pub fn land_code_gen(s1_reg: i32, s2_reg: i32, s1_string: String, s2_string: String) -> String {
         let branch_count = add_branch_count();

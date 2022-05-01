@@ -1,16 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
-use std::ops::Deref;
-use std::sync::{Arc, Weak};
 use koopa::ir::{BasicBlock, Function, FunctionData, Program, Value};
-use koopa::ir::dfg::DataFlowGraph;
-use koopa::ir::layout::BasicBlockNode;
 use koopa::ir::ValueKind;
 
 pub struct ControlFlowGraph{
-    pub enter: Arc<CfgInner>,
-    pub exit: Arc<CfgInner>,
-    pub other: HashMap<BasicBlock, Arc<CfgInner>>,
+    pub enter: CfgInner,
+    pub exit: CfgInner,
+    pub other: HashMap<BasicBlock, CfgInner>,
     pub name: String,
 }
 
@@ -35,8 +31,8 @@ impl CfgInner{
     fn attach_with_father_node(&mut self, father: BasicBlock){
         self.father.push(Some(father));
     }
-    fn get_define_and_use(&self, func_data: FunctionData) -> (HashSet<Value>, HashSet<Value>){
-        if let Some(bbn) = &self.inst{
+    fn get_define_and_use(&self, func_data: &FunctionData) -> (HashSet<Value>, HashSet<Value>){
+        if let Some(bbn) = func_data.layout().bbs().node(&self.code.unwrap()){
             let mut define_value:HashSet<Value> = HashSet::new();
             let mut use_value:HashSet<Value> = HashSet::new();
             for inst in bbn.insts().keys(){
@@ -102,27 +98,24 @@ impl ActiveVar{
     }
 }
 trait ActiveAnalysis: BuildControlFlowGraph{
-    fn get_define_and_uses(&self) -> HashMap<BasicBlock, (HashMap<usize, Value>,
-                                                          HashSet<usize, Value>)>;
+    fn get_define_and_uses(&self) -> HashMap<Function, HashMap<BasicBlock, (HashMap<usize, Value>, HashMap<usize, Value>)>>;
     fn active_analysis(&self) -> Vec<ActiveVar>;
 }
 
 
 trait BuildControlFlowGraph{
-    type CodeType;
-    fn build_control_flow_graph(code: Self::CodeType) -> Vec<ControlFlowGraph>;
+    fn build_control_flow_graph(&self) -> HashMap<Function, ControlFlowGraph>;
 }
 impl BuildControlFlowGraph for Program{
-    type CodeType = Self;
     ///build control flow graph for function in program
-    fn build_control_flow_graph(code: Self::CodeType) -> HashMap<Function, ControlFlowGraph> {
+    fn build_control_flow_graph(&self) -> HashMap<Function, ControlFlowGraph> {
         let mut control_flow_graph_map: HashMap<Function, ControlFlowGraph> = HashMap::new();
-        for func in code.func_layout(){
+        for func in self.func_layout(){
             let mut cfg = ControlFlowGraph::new();
-            let func_data = code.func(func.clone());
+            let func_data = self.func(func.clone());
             cfg.name = func_data.name().to_string();
             for (bb, bbn) in func_data.layout().bbs(){
-                let mut cfg_inner = Arc::new(CfgInner::new(bb.clone()));
+                let mut cfg_inner = CfgInner::new(bb.clone());
                 let bb_data = func_data.dfg().bbs().get(&bb);
                 let bb_data = bb_data.unwrap();
                 if let Some(name) = bb_data.name(){
@@ -131,7 +124,7 @@ impl BuildControlFlowGraph for Program{
                         cfg_inner.father.push(Some(bb.clone()));
                     }
                 }
-                cfg.other.insert(bb.clone(), cfg_inner.clone());
+                cfg.other.insert(bb.clone(), cfg_inner);
                 for inst in bbn.insts().keys(){
                     let val = func_data.dfg().value(inst.clone());
                     match val.kind(){
@@ -139,6 +132,7 @@ impl BuildControlFlowGraph for Program{
                            let target = jmp.target();
                            if let Some(tar) = cfg.other.get_mut(&target){
                                 tar.attach_with_father_node(bb.clone());
+                                let cfg_inner = cfg.other.get_mut(&bb.clone()).unwrap();
                                 cfg_inner.attach_with_son_node(target.clone());
                            }
                        }
@@ -147,14 +141,17 @@ impl BuildControlFlowGraph for Program{
                            let false_bb = br.false_bb();
                            if let Some(tar) = cfg.other.get_mut(&true_bb){
                                tar.attach_with_father_node(bb.clone());
+                               let cfg_inner = cfg.other.get_mut(&bb.clone()).unwrap();
                                cfg_inner.attach_with_son_node(true_bb.clone());
                            }
                            if let Some(tar) = cfg.other.get_mut(&false_bb){
                                tar.attach_with_father_node(bb.clone());
+                               let cfg_inner = cfg.other.get_mut(&bb.clone()).unwrap();
                                cfg_inner.attach_with_son_node(false_bb.clone());
                            }
                        }
                        ValueKind::Return(ret) => {
+                            let cfg_inner = cfg.other.get_mut(&bb.clone()).unwrap();
                             cfg_inner.son.push(None);
                             cfg.exit.father.push(Some(bb.clone()));
                        }
@@ -164,36 +161,34 @@ impl BuildControlFlowGraph for Program{
                     }
                 }
             }
-            control_flow_graph_map(func, cfg);
+            control_flow_graph_map.insert(func.clone(), cfg);
         }
-        control_flow_vec
+        control_flow_graph_map
     }
 }
 
 impl ControlFlowGraph {
     fn new() -> Self {
         ControlFlowGraph {
-            enter: Arc::new(CfgInner::new_enter_node()),
-            exit: Arc::new(CfgInner::new_enter_node()),
+            enter: CfgInner::new_enter_node(),
+            exit: CfgInner::new_enter_node(),
             other: HashMap::new(),
             name: "".to_string(),
         }
     }
 }
 impl ControlFlowGraph{
-    fn get_all_defines_and_uses(&self) -> HashMap<BasicBlock, (HashSet<Value>, HashSet<Value>)>{
-        let mut begin = &self.enter;
+    fn get_all_defines_and_uses(&self, func_data: &FunctionData) -> HashMap<BasicBlock,
+        (HashSet<Value>,
+                                                                    HashSet<Value>)>{
+        let begin = &self.enter;
         let mut defines_and_uses: HashMap<BasicBlock, (HashSet<Value>, HashSet<Value>)> =
             HashMap::new();
-        for i in begin.son{
+        for i in &begin.son{
             if let Some(bb) =  i{
                 if let Some(a) = self.other.get(&bb){
-                    if let Some(func_data) = &self.func_data{
-                        let result = a.get_define_and_use(*func_data);
-                        defines_and_uses.insert(bb, result);
-                    } else {
-                        unreachable!()
-                    }
+                    let result = a.get_define_and_use(func_data);
+                    defines_and_uses.insert(bb.clone(), result);
                 } else {
                     unreachable!()
                 }
@@ -237,6 +232,7 @@ fn merge_in(in_vec: &Vec<HashSet<Value>>) -> HashSet<Value>{
     }
     out
 }
+#[derive(Eq, Hash, PartialEq)]
 enum BBType{
     Enter,
     Exit,
@@ -250,43 +246,42 @@ fn get_in_and_out(cfg: &ControlFlowGraph, define_and_use: &HashMap<BasicBlock, (
     // init of the bb_in and bb_out
     bb_in.insert(BBType::Exit, HashSet::new());
     bb_in.insert(BBType::Enter, HashSet::new());
-    for (bb, cfg_inner) in cfg.other{
-        bb_in.insert(BBType::Other(bb), HashSet::new());
+    for (bb, cfg_inner) in &cfg.other{
+        bb_in.insert(BBType::Other(bb.clone()), HashSet::new());
     }
     let mut in_changed = true;
     while in_changed{
         in_changed = false;
-        let mut now = &cfg.exit;
+        let now = &cfg.exit;
         let mut global_vec: Vec<BasicBlock> = Vec::new();
-        for fa in now.father{
+        for fa in &now.father{
             if let Some(bb) = fa{
-                global_vec.push(bb);
+                global_vec.push(bb.clone());
             }
         }
         while !global_vec.is_empty(){
-            let mut now_bb = global_vec.get(0).unwrap();
-            global_vec.remove(0);
-            let now_cfg = cfg.other.get(now_bb).unwrap();
+            let now_bb = global_vec.remove(0);
+            let now_cfg = cfg.other.get(&now_bb).unwrap();
             let mut vec: Vec<HashSet<Value>> = Vec::new();
-            for son in now_cfg.son{
+            for son in &now_cfg.son{
                 if let Some(son) = son{
-                    let t = bb_in.get(&BBType::Other(son)).unwrap().clone();
+                    let t = bb_in.get(&BBType::Other(son.clone())).unwrap().clone();
                     vec.push(t);
                 }
             }
             let mut b_out =  merge_in(&vec);
-            bb_out.remove(&BBType::Other(bb));
-            bb_out.insert(BBType::Other(bb), b_out.clone());
-            let (define_value, use_value) = define_and_use.get(&bb).unwrap();
+            bb_out.remove(&BBType::Other(now_bb.clone()));
+            bb_out.insert(BBType::Other(now_bb.clone()), b_out.clone());
+            let (define_value, use_value) = define_and_use.get(&now_bb).unwrap();
             let (b_in, result) = get_in(&mut b_out, define_value, use_value);
-            bb_in.remove(&BBType::Other(bb));
-            bb_in.insert(BBType::Other(bb), b_in.clone());
+            bb_in.remove(&BBType::Other(now_bb.clone()));
+            bb_in.insert(BBType::Other(now_bb.clone()), b_in.clone());
             if result{
                 in_changed = true;
             }
-            for fa in now_cfg.father{
+            for fa in &now_cfg.father{
                 if let Some(fa) = fa{
-                    global_vec.push(fa);
+                    global_vec.push(fa.clone());
                 }
             }
         }
@@ -367,7 +362,7 @@ impl ActiveAnalysis for Program{
     fn active_analysis(&self) -> Vec<ActiveVar> {
         let mut active_var_vec: Vec<ActiveVar> = Vec::new();
         let define_and_use_all = self.get_define_and_uses();
-        let cfg_all = Self::build_control_flow_graph();
+        let cfg_all = Self::build_control_flow_graph(self);
         for (func, cfg) in &cfg_all{
             if let Some(define_and_use) = define_and_use_all.get(func){
                 let (bb_in, bb_out) = get_in_and_out(&cfg, &define_and_use);
@@ -378,9 +373,7 @@ impl ActiveAnalysis for Program{
         }
         active_var_vec
     }
-    fn get_define_and_uses(&self) -> HashMap<Function, HashMap<BasicBlock, (HashMap<usize, Value>,
-                                                                            HashMap<usize, Value>)
-    >> {
+    fn get_define_and_uses(&self) -> HashMap<Function, HashMap<BasicBlock, (HashMap<usize, Value>, HashMap<usize, Value>)>> {
         let mut define_uses_map: HashMap<Function, HashMap<BasicBlock, (HashMap<usize, Value>,
                                                                      HashMap<usize, Value>)>> =
             HashMap::new();
@@ -396,7 +389,7 @@ impl ActiveAnalysis for Program{
                 let bb_data = bb_data.unwrap();
                 for inst in bbn.insts().keys(){
                     let val = func_data.dfg().value(inst.clone());
-                    match value_data.kind(){
+                    match val.kind(){
                         ValueKind::Return(ret) => {
                             // println!("{:#?}", ret);
                             // println!("{:#?}", self.dfg().value(ret.value().unwrap()));

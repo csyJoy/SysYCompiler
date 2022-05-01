@@ -1,21 +1,14 @@
-use std::borrow::{Borrow, BorrowMut};
-use crate::frontEnd::{ast, symbol_table};
-use crate::frontEnd::ast::{AddExp, AddOperator, Block, BlockItem, BranchType, BType, CompUnit, ConstArrayInit, ConstDecl, ConstDef, ConstExp, ConstInitVal, Decl, EqExp, EqOperation, Exp, FuncDef, FuncParams, FuncType, GlobalItem, InitVal, LAndExp, LOrExp, Lval, MulExp, MulOperator, PrimaryExp, RelExp, RelOperation, Stmt, StmtType, UnaryExp, UnaryOp, UnaryOperator, VarArrayInit, VarDecl, VarDef};
+use std::borrow::BorrowMut;
+use crate::front_end::ast::{AddExp, AddOperator, Block, BlockItem, BranchType, BType, CompUnit, ConstArrayInit, ConstDecl, ConstDef, Decl, EqExp, EqOperation, Exp, FuncDef, FuncParams, FuncType, GlobalItem, InitVal, LAndExp, LOrExp, Lval, MulExp, MulOperator, PrimaryExp, RelExp, RelOperation, Stmt, StmtType, UnaryExp, UnaryOperator, VarArrayInit, VarDecl, VarDef};
 use lazy_static::lazy_static;
-use std::cell::{Ref, RefCell};
-use std::fmt::format;
-use std::mem;
-use std::ops::{Add, Deref, Mul};
-use std::process::id;
+use std::cell::RefCell;
+use std::ops::Deref;
 use std::sync::Mutex;
-use symbol_table::GlobalSymbolTableAllocator;
-use crate::frontEnd::ast::StmtType::StmtBlock;
-use crate::frontEnd::symbol_table::Value;
-use crate::frontEnd::GLOBAL_SYMBOL_TABLE_ALLOCATOR;
-use crate::frontEnd::REG_INDEX;
+use crate::front_end::symbol_table::Value;
+use crate::front_end::GLOBAL_SYMBOL_TABLE_ALLOCATOR;
+use crate::front_end::REG_INDEX;
 use std::sync::Arc;
-use crate::frontEnd::ir_marco::{lor_code_gen, land_code_gen};
-use std::hint::unreachable_unchecked;
+use crate::front_end::ir_marco::{lor_code_gen, land_code_gen};
 lazy_static!{
     static ref global_branch_count:Arc<Mutex<RefCell<i32>>> = Arc::new(Mutex::new(RefCell::new(1)));
     static ref global_return_switch:Arc<Mutex<RefCell<bool>>> = Arc::new(Mutex::new(RefCell::new
@@ -81,14 +74,14 @@ pub fn alloc_reg_for_const(s: String) -> String{
 }
 pub fn add_branch_count() -> i32{
     let mut a = global_branch_count.lock().unwrap();
-    let mut g = a.borrow_mut().get_mut();
+    let g = a.borrow_mut().get_mut();
     *g = *g + 1;
     *g
 }
 
 pub fn add_reg_idx() -> i32{
     let mut a = REG_INDEX.lock().unwrap();
-    let mut b = a.get_mut();
+    let b = a.get_mut();
     *b = *b + 1;
     *b
 }
@@ -105,7 +98,7 @@ pub fn check_load_ins(name: &String) -> Option<String>{
 pub fn get_reg_idx(name: &String) -> i32{
     let a = check_load_ins(name);
     let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-    let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
+    let g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
     if g.is_var(name){
         if let Some(name) = a{
             if let Some(i) = g.get_var_reg(&name){
@@ -116,12 +109,12 @@ pub fn get_reg_idx(name: &String) -> i32{
         }else {
             // unreachable!();
             let mut a = REG_INDEX.lock().unwrap();
-            let mut b = a.borrow_mut().get_mut();
+            let b = a.borrow_mut().get_mut();
             *b
         }
     } else {
         let mut a = REG_INDEX.lock().unwrap();
-        let mut b = a.borrow_mut().get_mut();
+        let b = a.borrow_mut().get_mut();
         *b
     }
 }
@@ -194,7 +187,6 @@ impl GetKoopa for GlobalItem{
             GlobalItem::FuncDef(func_def) => {
                 func_def.get_koopa()
             }
-            _ => unreachable!()
         }
     }
 }
@@ -585,7 +577,7 @@ fn generate_global_init_val(array_init: &Box<VarArrayInit>, dim_vec: &Vec<i32>,
     result
 }
 fn init_var_handler(mut result: Vec<i32>, dim_vec: &Vec<i32>) -> String {
-    let mut product = 1;
+    let product = 1;
     let mut count = result.len();
     let total = dim_vec.iter().fold(product, |product, a| product * a);
     while count < total as usize {
@@ -593,10 +585,10 @@ fn init_var_handler(mut result: Vec<i32>, dim_vec: &Vec<i32>) -> String {
         count += 1;
     }
     let mut tmp: Vec<String> = Vec::new();
-    for k in (0..dim_vec.len()){
+    for k in 0..dim_vec.len(){
         if k == 0{
             let mut s = "".to_string();
-            for i in (0..result.len()){
+            for i in 0..result.len(){
                 if dim_vec[0] == 1{
                     tmp.push(format!("{{ {} }}", result[i]));
                 }
@@ -613,7 +605,7 @@ fn init_var_handler(mut result: Vec<i32>, dim_vec: &Vec<i32>) -> String {
         } else {
             let len = tmp.len();
             let mut s = "".to_string();
-            for i in (0..len){
+            for i in 0..len{
                 if dim_vec[k] == 1{
                     tmp.push(format!("{{ {} }}", result[i]));
                 }
@@ -627,7 +619,7 @@ fn init_var_handler(mut result: Vec<i32>, dim_vec: &Vec<i32>) -> String {
                     s += &format!(", {}", tmp[i]);
                 }
             }
-            for i in (0..len){
+            for _ in 0..len{
                 tmp.remove(0);
             }
         }
@@ -692,8 +684,8 @@ impl VarDef{
             let mut unique_name = "".to_string();
             {
                 let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                let mut g = m.borrow_mut().get_mut();
-                let mut go =  g.global_symbol_table.as_mut().unwrap().lock().unwrap();
+                let g = m.borrow_mut().get_mut();
+                let go =  g.global_symbol_table.as_mut().unwrap().lock().unwrap();
                 unique_name = self.get_name() + &format!("_{}",go.symbol_id);
             }
             let mut total = format!("global @{} = alloc", unique_name );
@@ -716,13 +708,12 @@ impl VarDef{
             }
             {
                 let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                let mut g = m.borrow_mut().get_mut();
+                let g = m.borrow_mut().get_mut();
                 let mut go =  g.global_symbol_table.as_mut().unwrap().lock().unwrap();
                 go.insert_var_point_symbol((&s).to_string(), &dim_idx);
             }
             total += &ss;
             if let Some(initval) = &self.initval{
-                let init_string = "".to_string();
                 if let Some(var_array_init) = &initval.array_init_vec{
                     // dim_idx.reverse();
                     let mut a = 0;
@@ -737,10 +728,10 @@ impl VarDef{
             total
         } else {
             if let Some(i) = &self.initval{
-                let mut k = i.get_koopa();
+                let k = i.get_koopa();
                 if let Ok(l)= k.parse::<i32>(){
                     let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                    let mut g = m.borrow_mut().get_mut();
+                    let g = m.borrow_mut().get_mut();
                     let mut go =  g.global_symbol_table.as_mut().unwrap().lock().unwrap();
                     go.insert_var_symbol(s, Some(l));
                     let unique_name = self.get_name() + &format!("_{}",go.symbol_id);
@@ -750,7 +741,7 @@ impl VarDef{
                 }
             } else {
                 let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                let mut g = m.borrow_mut().get_mut();
+                let g = m.borrow_mut().get_mut();
                 let mut go =  g.global_symbol_table.as_mut().unwrap().lock().unwrap();
                 go.insert_var_symbol((&s).to_string(), Some(0));
                 let unique_name = self.get_name() + &format!("_{}",go.symbol_id);
@@ -819,7 +810,7 @@ impl ConstDecl{
             let s = self.const_def.get_name();
             {
                 let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                let mut g = m.borrow_mut().get_mut();
+                let g = m.borrow_mut().get_mut();
                 let mut k = g.global_symbol_table.as_mut().unwrap().lock().unwrap();
                 k.insert_const_symbol(s, i);
             }
@@ -832,7 +823,7 @@ impl ConstDecl{
                 if let Some(a) = q.eval_const(){
                     let Value::Int(i) = a;
                     let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                    let mut g = m.borrow_mut().get_mut();
+                    let g = m.borrow_mut().get_mut();
                     let mut k = g.global_symbol_table.as_mut().unwrap().lock().unwrap();
                     k.insert_const_symbol(q.get_name(), i);
                     ss += "";
@@ -856,7 +847,7 @@ impl GetKoopa for FuncParams{
                 //todo： 需要对数组参数进行处理
                 if let Some(idx) = &self.param.array_idx{
                     let mut ss = "".to_string();
-                    let mut ptr = "*".to_string();
+                    let ptr = "*".to_string();
                     let mut first = true;
                     if idx.const_exp.is_empty(){
                         ss = "i32".to_string();
@@ -872,13 +863,12 @@ impl GetKoopa for FuncParams{
                             }
                         }
                     }
-                    let sss = (ptr + &ss);
+                    let sss = ptr + &ss;
                     s_type += &format!("%{}:{}",  ident, sss);
                 } else {
                     s_type += &format!("%{}:i32", ident);
                 }
             }
-            _ => {unreachable!()}
         }
         if !self.params.is_empty(){
             for i in &self.params{
@@ -890,7 +880,7 @@ impl GetKoopa for FuncParams{
                         //todo 没处理
                         if let Some(idx) = idx{
                             let mut ss = "".to_string();
-                            let mut ptr = "*".to_string();
+                            let ptr = "*".to_string();
                             let mut first = true;
                             if idx.const_exp.is_empty(){
                                 ss = "i32".to_string();
@@ -906,13 +896,12 @@ impl GetKoopa for FuncParams{
                                     }
                                 }
                             }
-                            let sss = (ptr + &ss);
+                            let sss = ptr + &ss;
                             s_type += &format!(", %{}:{}",  ident, sss);
                         } else {
                             s_type += &format!(", %{}:i32", ident);
                         }
                     }
-                    _ => {unreachable!()}
                 }
             }
         }
@@ -927,14 +916,14 @@ impl FuncParams{
         let mut s_type = "".to_string();
         {
             let mut o = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-            let mut g = o.borrow_mut().get_mut().allocate_symbol_table();
+            o.borrow_mut().get_mut().allocate_symbol_table();
         }
         match btype{
             BType::Int => {
                 if let Some(array_idx) = idx{
                     let mut vec:Vec<i32> = Vec::new();
                     let mut ss = "".to_string();
-                    let mut ptr = "*".to_string();
+                    let ptr = "*".to_string();
                     let mut first = true;
                     if array_idx.const_exp.is_empty(){
                         ss = "i32".to_string();
@@ -950,16 +939,16 @@ impl FuncParams{
                             }
                         }
                     }
-                    let sss = (ptr + &ss);
-                    for i in (0..array_idx.const_exp.len() + 1){
+                    let sss = ptr + &ss;
+                    for _ in 0..array_idx.const_exp.len() + 1{
                         vec.push(0);
                     }
                     let mut s = -9999;
                     {
                         let mut o = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                        let mut S = o.borrow_mut().get_mut().now_symbol.as_mut().unwrap().lock().unwrap();
-                        S.insert_raw_point_symbol((&ident).to_string(), &vec);
-                        s = S.symbol_id;
+                        let mut now_symbol = o.borrow_mut().get_mut().now_symbol.as_mut().unwrap().lock().unwrap();
+                        now_symbol.insert_raw_point_symbol((&ident).to_string(), &vec);
+                        s = now_symbol.symbol_id;
                     }
                     s_type += &format!("\t@{}_{} = alloc {}\n\tstore %{}, @{}_{}\n", ident, s,
                         sss, ident, ident, s);
@@ -967,15 +956,14 @@ impl FuncParams{
                     let mut s = -9999;
                     {
                         let mut o = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                        let mut S = o.borrow_mut().get_mut().now_symbol.as_mut().unwrap().lock().unwrap();
-                        S.insert_var_symbol((&ident).to_string(),None);
-                        s = S.symbol_id;
+                        let mut now_symbol = o.borrow_mut().get_mut().now_symbol.as_mut().unwrap().lock().unwrap();
+                        now_symbol.insert_var_symbol((&ident).to_string(), None);
+                        s = now_symbol.symbol_id;
                     }
                     s_type += &format!("\t@{}_{} = alloc i32\n\tstore %{}, @{}_{}\n", ident, s, ident,
                                        ident, s);
                 }
             }
-            _ => {unreachable!()}
         }
         if !self.params.is_empty(){
             for i in &self.params{
@@ -987,7 +975,7 @@ impl FuncParams{
                         if let Some(array_idx) = idx{
                             let mut vec:Vec<i32> = Vec::new();
                             let mut ss = "".to_string();
-                            let mut ptr = "*".to_string();
+                            let ptr = "*".to_string();
                             let mut first = true;
                             if array_idx.const_exp.is_empty(){
                                 ss = "i32".to_string();
@@ -1004,16 +992,16 @@ impl FuncParams{
                                     }
                                 }
                             }
-                            let sss = (ptr + &ss);
-                            for i in (0..array_idx.const_exp.len() + 1){
+                            let sss = ptr + &ss;
+                            for _ in 0..array_idx.const_exp.len() + 1{
                                 vec.push(0);
                             }
                             let mut s = -9999;
                             {
                                 let mut o = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                                let mut S = o.borrow_mut().get_mut().now_symbol.as_mut().unwrap().lock().unwrap();
-                                S.insert_raw_point_symbol((&ident).to_string(), &vec);
-                                s = S.symbol_id;
+                                let mut now_symbol = o.borrow_mut().get_mut().now_symbol.as_mut().unwrap().lock().unwrap();
+                                now_symbol.insert_raw_point_symbol((&ident).to_string(), &vec);
+                                s = now_symbol.symbol_id;
                             }
                             s_type += &format!("\t@{}_{} = alloc {}\n\tstore %{}, @{}_{}\n", ident, s,
                                                sss, ident, ident, s);
@@ -1021,9 +1009,9 @@ impl FuncParams{
                             let mut s = -9999;
                             {
                                 let mut o = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                                let mut S = o.borrow_mut().get_mut().now_symbol.as_mut().unwrap().lock().unwrap();
-                                S.insert_var_symbol((&ident).to_string(),None);
-                                s = S.symbol_id;
+                                let mut now_symbol = o.borrow_mut().get_mut().now_symbol.as_mut().unwrap().lock().unwrap();
+                                now_symbol.insert_var_symbol((&ident).to_string(), None);
+                                s = now_symbol.symbol_id;
                             }
                             s_type += &format!("\t@{}_{} = alloc i32\n\tstore %{}, @{}_{}\n", ident, s, ident,
                                                ident, s);
@@ -1038,7 +1026,6 @@ impl FuncParams{
                     //     s_type += &format!("\t@{}_{} = alloc i32\n\tstore %{}, @{}_{}\n", ident, s, ident,
                     //                        ident, s);
                     // }
-                    _ => {unreachable!()}
                 }
             }
         }
@@ -1049,11 +1036,11 @@ impl FuncParams{
 impl GetKoopa for FuncDef{
     type Output = String;
     fn get_koopa(&self) -> Self::Output {
-        let mut typ: &str;
+        let typ: &str;
         let mut sr: String = "".to_string();
         {
             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-            let mut g = &m.borrow_mut().get_mut().global_symbol_table;
+            let g = &m.borrow_mut().get_mut().global_symbol_table;
             let s = g.as_ref().unwrap();
             let mut t:FuncType = FuncType::Void;
             if let FuncType::Int = self.func_type{
@@ -1063,7 +1050,7 @@ impl GetKoopa for FuncDef{
             }
             s.lock().unwrap().insert_function_symbol((&self.id).to_string(), t);
             let mut o = now_function_name.lock().unwrap();
-            let mut func_name = o.borrow_mut().get_mut();
+            let func_name = o.borrow_mut().get_mut();
             *func_name = self.id.clone();
         }
         match self.func_type{
@@ -1091,9 +1078,6 @@ impl GetKoopa for FuncDef{
                     ("{{\n%entry:\n");
                 }
             },
-            _ => {
-                unreachable!()
-            }
         }
         let mut s0 =  "".to_string();
         let mut scope = false;
@@ -1110,7 +1094,7 @@ impl GetKoopa for FuncDef{
         let sv = s1.split("\n").collect::<Vec<&str>>();
         if has_params {
             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-            let mut g = m.borrow_mut().get_mut();
+            let g = m.borrow_mut().get_mut();
             g.deallocate_symbol_table();
         }
         //todo: 没有处理return 是void的情况
@@ -1149,16 +1133,16 @@ impl GetKoopa for Block {
     fn get_koopa(&self) -> Self::Output {
         {
             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-            let mut g = m.borrow_mut().get_mut();
+            let g = m.borrow_mut().get_mut();
             g.allocate_symbol_table();
         }
         let s = self.block_item.get_koopa();
         {
             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-            let mut g = m.borrow_mut().get_mut();
+            let g = m.borrow_mut().get_mut();
             g.deallocate_symbol_table();
             let mut o = global_return_switch.lock().unwrap();
-            let mut q = o.get_mut();
+            let q = o.get_mut();
             *q = true;
         }
         return s;
@@ -1169,9 +1153,7 @@ impl GetKoopa for Vec<BlockItem>{
     type Output = String;
     fn get_koopa(&self) -> Self::Output {
         let mut s = "".to_string();
-        let mut first = true;
         for v in self{
-
             let s1 = v.get_koopa();
             // if is_return(&s1){
             //     if first{
@@ -1206,9 +1188,9 @@ impl GetKoopa for Stmt{
     type Output = String;
     fn get_koopa(&self) -> Self::Output {
         let mut o = global_return_switch.lock().unwrap();
-        let mut q = *o.get_mut();
+        let q = *o.get_mut();
         let mut w = global_while_switch.lock().unwrap();
-        let mut qq = *w.get_mut();
+        let qq = *w.get_mut();
         std::mem::drop(w);
         std::mem::drop(o);
         if q && qq {
@@ -1216,7 +1198,7 @@ impl GetKoopa for Stmt{
                 StmtType::Return(exp) => {
                     if let Some(exp) = exp{
                         let mut o = global_return_switch.lock().unwrap();
-                        let mut q = o.get_mut();
+                        let q = o.get_mut();
                         *q = false;
                         let a = exp.eval_const();
                         let mut function_name = "".to_string();
@@ -1239,7 +1221,7 @@ impl GetKoopa for Stmt{
                         }
                     } else {
                         let mut o = global_return_switch.lock().unwrap();
-                        let mut q = o.get_mut();
+                        let q = o.get_mut();
                         *q = false;
                         let mut function_name = "".to_string();
                         {
@@ -1266,7 +1248,7 @@ impl GetKoopa for Stmt{
                     let s2 = exp.get_koopa();
                     if let Ok(i) = s2.parse::<i32>(){
                         let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                        let mut g = &m.borrow_mut().get_mut().now_symbol.as_ref().unwrap();
+                        let g = &m.borrow_mut().get_mut().now_symbol.as_ref().unwrap();
                         let mut go = g.lock().unwrap();
                         let unique_name = format!("{}_{}",ident.ident, go.exist_var_symbol(&ident
                             .ident).unwrap());
@@ -1286,8 +1268,8 @@ impl GetKoopa for Stmt{
                         let mut is_var: bool = true;
                         {
                             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                            let mut g = &m.borrow_mut().get_mut().now_symbol.as_ref().unwrap();
-                            let mut go = g.lock().unwrap();
+                            let g = &m.borrow_mut().get_mut().now_symbol.as_ref().unwrap();
+                            let go = g.lock().unwrap();
                             unique_name = format!("{}_{}", ident.ident, go.exist_var_symbol(&ident
                                 .ident).unwrap());
                             is_var = go.is_var(&ident.ident);
@@ -1317,35 +1299,33 @@ impl GetKoopa for Stmt{
                     match branch{
                         BranchType::Matched(a) => {
                             let b = a.deref();
-                            if let (c,d,e) = b{
-                                let s = alloc_reg_for_const(c.get_koopa());
-                                let s1 = format!("\tbr %{}, %then_{}, %else_{}\n",get_reg_idx(&s),
-                                                 branch_count, branch_count);
-                                let s2 = check_return(format!("%then_{}:\n", branch_count) +
-                                                          &alloc_reg_for_const(d
-                                                              .get_koopa()), branch_count);
-                                {
-                                    let mut o = global_return_switch.lock().unwrap();
-                                    let mut q = o.get_mut();
-                                    let mut w = global_while_switch.lock().unwrap();
-                                    let mut qq = w.get_mut();
-                                    *qq = true;
-                                    *q = true;
-                                }
-                                let s3 = check_return(format!("%else_{}:\n", branch_count) + &alloc_reg_for_const
-                                    (e.get_koopa()),branch_count);
-                                {
-                                    let mut o = global_return_switch.lock().unwrap();
-                                    let mut q = o.get_mut();
-                                    *q = true;
-                                    let mut w = global_while_switch.lock().unwrap();
-                                    let mut qq = w.get_mut();
-                                    *qq = true
-                                }
-                                s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
-                            } else {
-                                unreachable!()
+                            let (c,d,e) = b;
+                            let s = alloc_reg_for_const(c.get_koopa());
+                            let s1 = format!("\tbr %{}, %then_{}, %else_{}\n",get_reg_idx(&s),
+                                             branch_count, branch_count);
+                            let s2 = check_return(format!("%then_{}:\n", branch_count) +
+                                                      &alloc_reg_for_const(d
+                                                          .get_koopa()), branch_count);
+                            {
+                                let mut o = global_return_switch.lock().unwrap();
+                                let q = o.get_mut();
+                                let mut w = global_while_switch.lock().unwrap();
+                                let qq = w.get_mut();
+                                *qq = true;
+                                *q = true;
                             }
+                            let s3 = check_return(format!("%else_{}:\n", branch_count) + &alloc_reg_for_const
+                                (e.get_koopa()),branch_count);
+                            {
+                                let mut o = global_return_switch.lock().unwrap();
+                                let q = o.get_mut();
+                                *q = true;
+                                let mut w = global_while_switch.lock().unwrap();
+                                let qq = w.get_mut();
+                                *qq = true
+                            }
+                            s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
+
                         },
                         BranchType::UnMatched(a) => {
                             let b = a.deref();
@@ -1359,20 +1339,20 @@ impl GetKoopa for Stmt{
                                                               .get_koopa()), branch_count);
                                 {
                                     let mut o = global_return_switch.lock().unwrap();
-                                    let mut q = o.get_mut();
+                                    let q = o.get_mut();
                                     *q = true;
                                     let mut w = global_while_switch.lock().unwrap();
-                                    let mut qq = w.get_mut();
+                                    let qq = w.get_mut();
                                     *qq = true
                                 }
                                 let s3 = check_return(format!("%else_{}:\n", branch_count) + &alloc_reg_for_const
                                     (e.get_koopa()),branch_count);
                                 {
                                     let mut o = global_return_switch.lock().unwrap();
-                                    let mut q = o.get_mut();
+                                    let q = o.get_mut();
                                     *q = true;
                                     let mut w = global_while_switch.lock().unwrap();
-                                    let mut qq = w.get_mut();
+                                    let qq = w.get_mut();
                                     *qq = true
                                 }
                                 s + &s1 + &s2 + &s3 + &format!("%end_{}:\n",branch_count)
@@ -1385,10 +1365,10 @@ impl GetKoopa for Stmt{
                                                               .get_koopa()), branch_count);
                                 {
                                     let mut o = global_return_switch.lock().unwrap();
-                                    let mut q = o.get_mut();
+                                    let q = o.get_mut();
                                     *q = true;
                                     let mut w = global_while_switch.lock().unwrap();
-                                    let mut qq = w.get_mut();
+                                    let qq = w.get_mut();
                                     *qq = true
                                 }
                                 let s3 = check_return(format!("%else_{}:\n", branch_count),branch_count);
@@ -1397,7 +1377,6 @@ impl GetKoopa for Stmt{
                                 unreachable!()
                             }
                         }
-                        _ => unreachable!()
                     }
                 }
                 StmtType::While(while_stmt) => {
@@ -1406,7 +1385,7 @@ impl GetKoopa for Stmt{
                     record_while(branch_count);
                     {
                         let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                        let g = m.borrow_mut().get_mut().allocate_symbol_table();
+                        m.borrow_mut().get_mut().allocate_symbol_table();
                     }
                     let preinstructiion = format!("\tjump %while_entry_{}\n",branch_count);
                     let mut while_entry = format!("%while_entry_{}:\n",branch_count);
@@ -1432,7 +1411,7 @@ impl GetKoopa for Stmt{
                     leave_while();
                     {
                         let mut w = global_while_switch.lock().unwrap();
-                        let mut qq = w.get_mut();
+                        let qq = w.get_mut();
                         *qq = true;
                     }
                     preinstructiion + &while_entry + &while_body
@@ -1440,7 +1419,7 @@ impl GetKoopa for Stmt{
                 StmtType::Break => {
                     {
                         let mut w = global_while_switch.lock().unwrap();
-                        let mut qq = w.get_mut();
+                        let qq = w.get_mut();
                         *qq = false;
                     }
                     format!("\tjump %end_{}\n",get_while())
@@ -1448,12 +1427,11 @@ impl GetKoopa for Stmt{
                 StmtType::Continue => {
                     {
                         let mut w = global_while_switch.lock().unwrap();
-                        let mut qq = w.get_mut();
+                        let qq = w.get_mut();
                         *qq = false;
                     }
                     format!("\tjump %while_entry_{}\n",get_while())
                 }
-                _ => unreachable!()
             }
         } else {
             "".to_string()
@@ -1488,14 +1466,14 @@ impl GetKoopa for UnaryExp{
                 let g = &a.unary_op;
                 match g{
                     UnaryOperator::Add => {
-                        let mut s = b.get_koopa();
+                        let s = b.get_koopa();
                         if let Ok(c) = s.parse::<i32>(){
                             let reg_idx = add_reg_idx();
                             format!("\t%{} = add 0, {}\n",reg_idx, c)
                         } else {
                             let reg_idxx = get_reg_idx(&s);
                             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                            let mut go = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
+                            let go = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                             if let Some(_) = go.exist_var_symbol(&s){
                                 let reg_idx = add_reg_idx();
                                 format!("\t%{} = add 0, %{}\n",reg_idx, reg_idxx)
@@ -1506,14 +1484,14 @@ impl GetKoopa for UnaryExp{
                         }
                     }
                     UnaryOperator::Sub => {
-                        let mut s = b.get_koopa();
+                        let s = b.get_koopa();
                         if let Ok(c) = s.parse::<i32>(){
                             let reg_idx = add_reg_idx();
                             format!("\t%{} = sub 0, {}\n",reg_idx, c)
                         } else {
                             let reg_idxx = get_reg_idx(&s);
                             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                            let mut go = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
+                            let go = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                             if let Some(_) = go.exist_var_symbol(&s){
                                 let reg_idx = add_reg_idx();
                                 s + &format!("\t%{} = sub 0, %{}\n", reg_idx, reg_idxx)
@@ -1524,14 +1502,14 @@ impl GetKoopa for UnaryExp{
                         }
                     }
                     UnaryOperator::False => {
-                        let mut s = b.get_koopa();
+                        let s = b.get_koopa();
                         if let Ok(c) = s.parse::<i32>(){
                             let reg_idx = add_reg_idx();
                             format!("\t%{} = eq {}, 0\n",reg_idx, c)
                         } else {
                             let reg_idxx = get_reg_idx(&s);
                             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                            let mut go = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
+                            let go = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                             if let Some(_) = go.exist_var_symbol(&s){
                                 let reg_idx = add_reg_idx();
                                 format!("\t%{} = eq %{}, 0\n", reg_idx, reg_idxx)
@@ -1541,11 +1519,10 @@ impl GetKoopa for UnaryExp{
                             }
                         }
                     }
-                    _ => "".to_string()
                 }
             } else if let Some((ident, params)) = &self.func_call{
                 let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                let mut g = &m.borrow_mut().get_mut().global_symbol_table.as_ref().unwrap();
+                let g = &m.borrow_mut().get_mut().global_symbol_table.as_ref().unwrap();
                 let mut sy = g.lock().unwrap();
                 if sy.exist_function_symbol(&ident){
                     if let Some(rparams) = params{
@@ -1644,8 +1621,8 @@ impl GetKoopa for Lval{
         let mut raw_ptr_bool = false;
         {
             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-            let mut g = &m.borrow_mut().get_mut().now_symbol.as_ref().unwrap();
-            let mut go = g.lock().unwrap();
+            let g = &m.borrow_mut().get_mut().now_symbol.as_ref().unwrap();
+            let go = g.lock().unwrap();
             symbol_id = go.exist_var_symbol(&self.ident).unwrap();
             raw_ptr_bool = go.is_raw_ptr(&self.ident);
         }
@@ -1748,20 +1725,20 @@ impl GetKoopa for PrimaryExp{
                 let mut raw_ptr_bool = false;
                 {
                     let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                    let mut k = g.borrow_mut().get_mut();
-                    let mut s = k.now_symbol.as_ref().unwrap().lock().unwrap();
+                    let k = g.borrow_mut().get_mut();
+                    let s = k.now_symbol.as_ref().unwrap().lock().unwrap();
                     const_bool = s.exist_const_symbol(&a.ident)
                 }
                 {
                     let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                    let mut k = g.borrow_mut().get_mut();
+                    let  k = g.borrow_mut().get_mut();
                     let mut gg = k.global_symbol_table.as_ref().unwrap().lock().unwrap();
                     global_bool = gg.exist_global_inited_symbol(&a.ident);
                 }
                 {
                     let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                    let mut k = g.borrow_mut().get_mut();
-                    let mut s = k.now_symbol.as_ref().unwrap().lock().unwrap();
+                    let k = g.borrow_mut().get_mut();
+                    let s = k.now_symbol.as_ref().unwrap().lock().unwrap();
                    if let Some(_) = s.exist_var_symbol(&a.ident) {
                        var_bool = true;
                    } else {
@@ -1770,13 +1747,13 @@ impl GetKoopa for PrimaryExp{
                }
                {
                     let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                    let mut k = g.borrow_mut().get_mut();
-                    let mut s = k.now_symbol.as_ref().unwrap().lock().unwrap();
+                    let k = g.borrow_mut().get_mut();
+                    let s = k.now_symbol.as_ref().unwrap().lock().unwrap();
                     raw_ptr_bool = s.is_raw_ptr(&a.ident);
                }
                let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-               let mut m = g.borrow_mut().get_mut();
-               let mut k = m.now_symbol.as_ref().unwrap().lock().unwrap();
+               let m = g.borrow_mut().get_mut();
+               let k = m.now_symbol.as_ref().unwrap().lock().unwrap();
                if const_bool ||( global_bool && !var_bool){
                     format!("{}", k.get_value(&a.ident))
                } else if let Some(symbol_id) = k.exist_var_symbol(&a.ident){
@@ -1833,8 +1810,8 @@ impl GetKoopa for PrimaryExp{
                             let mut dim: Vec<i32> = Vec::new();
                            {
                                let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                               let mut m = g.borrow_mut().get_mut();
-                               let mut k = m.now_symbol.as_ref().unwrap().lock().unwrap();
+                               let m = g.borrow_mut().get_mut();
+                               let k = m.now_symbol.as_ref().unwrap().lock().unwrap();
                                dim = k.get_dimension(&a.ident).unwrap();
                            }
                            if a.array_idx.len() == 0{
@@ -1906,8 +1883,8 @@ impl GetKoopa for PrimaryExp{
                            let mut dim: Vec<i32> = Vec::new();
                            {
                                let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                               let mut m = g.borrow_mut().get_mut();
-                               let mut k = m.now_symbol.as_ref().unwrap().lock().unwrap();
+                               let m = g.borrow_mut().get_mut();
+                               let k = m.now_symbol.as_ref().unwrap().lock().unwrap();
                                dim = k.get_dimension(&a.ident).unwrap();
                            }
                            if dim.len() == a.array_idx.len(){
@@ -1941,15 +1918,14 @@ impl GetKoopa for PrimaryExp{
                        std::mem::drop(m);
                        std::mem::drop(g);
                        let tmp = add_reg_idx();
-                       let mut is_var:bool =  false;
-                       let mut symbol_id = 0;
+                       let mut symbol_id;
                        {
                            let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                           let mut m = g.borrow_mut().get_mut();
+                           let m = g.borrow_mut().get_mut();
                            let mut k = m.now_symbol.as_ref().unwrap().lock().unwrap();
                            k.set_var_reg(&a.ident, tmp);
                            symbol_id = k.exist_var_symbol(&a.ident).unwrap();
-                           is_var = k.is_var(&a.ident);
+                           k.is_var(&a.ident);
                        }
                        let unique_name = (&a.ident).to_string() + &format!("_{}", symbol_id);
                        format!("\t%{} = load @{}\n", tmp, unique_name)
@@ -1971,12 +1947,11 @@ impl GetKoopa for MulExp{
             a.get_koopa()
         } else {
             if let Some((a,b,c)) = &self.mul_operate{
-                let mut operation = "".to_string();
+                let mut operation:String;
                 match b{
                     MulOperator::Divide => operation = "div".to_string(),
                     MulOperator::Times => operation = "mul".to_string(),
                     MulOperator::Quote => operation = "mod".to_string(),
-                    _ => operation = "".to_string()
                 }
                 let a_string = a.get_koopa();
                 let a_reg_idx = get_reg_idx(&a_string);
@@ -1998,12 +1973,10 @@ impl GetKoopa for AddExp{
             a.get_koopa()
         } else {
             if let Some((a, b ,c)) = &self.add_operate{
-                println!("{:#?}", c);
-                let mut operation = "".to_string();
+                let operation;
                 match b{
                     AddOperator::Add => operation = "add".to_string(),
                     AddOperator::Sub => operation = "sub".to_string(),
-                    _ => operation = "".to_string(),
                 }
                 let a_string = a.get_koopa();
                 let a_reg_idx = get_reg_idx(&a_string);
@@ -2025,13 +1998,12 @@ impl GetKoopa for RelExp {
             a.get_koopa()
         } else {
             if let Some((a, b ,c)) = &self.rel_operate{
-                let mut operation = "".to_string();
+                let mut operation:String;
                 match b{
                     RelOperation::Less => operation = "lt".to_string(),
                     RelOperation::LessEq => operation = "le".to_string(),
                     RelOperation::Greater => operation = "gt".to_string(),
                     RelOperation::GreaterEq => operation = "ge".to_string(),
-                    _ => operation = "".to_string(),
                 }
                 let a_string = a.get_koopa();
                 let a_reg_idx = get_reg_idx(&a_string);
@@ -2053,11 +2025,10 @@ impl GetKoopa for EqExp {
             a.get_koopa()
         } else {
             if let Some((a, b ,c)) = &self.eq_operate{
-                let mut operation = "".to_string();
+                let mut operation:String;
                 match b{
                     EqOperation::Eq => operation = "eq".to_string(),
                     EqOperation::NEq => operation = "ne".to_string(),
-                    _ => operation = "".to_string(),
                 }
                 let a_string = a.get_koopa();
                 let a_reg_idx = get_reg_idx(&a_string);
@@ -2079,14 +2050,14 @@ impl GetKoopa for LAndExp{
             a.get_koopa()
         } else {
             if let Some((a, c )) = &self.land_operate{
-                let mut operation = "and".to_string();
+                // let mut operation = "and".to_string();
                 let a_string = a.get_koopa();
                 let a_reg_idx = get_reg_idx(&a_string);
                 let c_string = c.get_koopa();
                 let c_reg_idx = get_reg_idx(&c_string);
                 let e_reg = add_reg_idx();
                 let d_reg = add_reg_idx();
-                let reg_idx = add_reg_idx();
+                // let reg_idx = add_reg_idx();
                 if let Ok(d) = c_string.parse::<i32>(){
                     if let Ok(e) = a_string.parse::<i32>(){
                         let s1 = format!("\t%{} = ne 0, {}\n",e_reg, e);
@@ -2097,7 +2068,7 @@ impl GetKoopa for LAndExp{
                         let s1 = format!("\t%{} = ne 0, %{}\n",e_reg, a_reg_idx);
                         let s2 = format!("\t%{} = ne 0, {}\n",d_reg, d);
                         let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                        let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
+                        let g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                         if let Some(_) = g.exist_var_symbol(&a_string){
                             land_code_gen(e_reg, d_reg, s1, s2) } else {
                             let s1_string = a_string + &s1;
@@ -2109,7 +2080,7 @@ impl GetKoopa for LAndExp{
                         let s1 = format!("\t%{} = ne 0, {}\n",e_reg, e);
                         let s2 = format!("\t%{} = ne 0, %{}\n",d_reg, c_reg_idx);
                         let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                        let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
+                        let g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                         if let Some(_) = g.exist_var_symbol(&c_string){
                             land_code_gen(e_reg, d_reg, s1, s2)
                         } else {
@@ -2120,7 +2091,7 @@ impl GetKoopa for LAndExp{
                         let s1 = format!("\t%{} = ne 0, %{}\n",e_reg, a_reg_idx);
                         let s2 = format!("\t%{} = ne 0, %{}\n",d_reg, c_reg_idx);
                         let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                        let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
+                        let g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                         if let Some(_) = g.exist_var_symbol(&c_string){
                             if let Some(_) = g.exist_var_symbol(&a_string){
                                 land_code_gen(e_reg, d_reg, s1, s2)
@@ -2154,7 +2125,7 @@ impl GetKoopa for LOrExp{
             a.get_koopa()
         } else {
             if let Some((a, c )) = &self.lor_operate{
-                let mut operation = "or".to_string();
+                // let mut operation = "or".to_string();
                 let a_string = a.get_koopa();
                 let a_reg_idx = get_reg_idx(&a_string);
                 let c_string = c.get_koopa();
@@ -2171,7 +2142,7 @@ impl GetKoopa for LOrExp{
                         let s1 = format!("\t%{} = ne 0, %{}\n",e_reg, a_reg_idx);
                         let s2 = format!("\t%{} = ne 0, {}\n",d_reg, d);
                         let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                        let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
+                        let g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                         if let Some(_) = g.exist_var_symbol(&a_string){
                             lor_code_gen(e_reg, d_reg, s1, s2) } else {
                             let s1_string = a_string + &s1;
@@ -2183,7 +2154,7 @@ impl GetKoopa for LOrExp{
                         let s1 = format!("\t%{} = ne 0, {}\n",e_reg, e);
                         let s2 = format!("\t%{} = ne 0, %{}\n",d_reg, c_reg_idx);
                         let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                        let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
+                        let g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                         if let Some(_) = g.exist_var_symbol(&c_string){
                             lor_code_gen(e_reg, d_reg, s1, s2)
                         } else {
@@ -2194,7 +2165,7 @@ impl GetKoopa for LOrExp{
                         let s1 = format!("\t%{} = ne 0, %{}\n",e_reg, a_reg_idx);
                         let s2 = format!("\t%{} = ne 0, %{}\n",d_reg, c_reg_idx);
                         let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                        let mut g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
+                        let g = m.borrow_mut().get_mut().now_symbol.as_ref().unwrap().lock().unwrap();
                         if let Some(_) = g.exist_var_symbol(&c_string){
                             if let Some(_) = g.exist_var_symbol(&a_string){
                                 lor_code_gen(e_reg, d_reg, s1, s2)
@@ -2306,11 +2277,11 @@ impl GetKoopa for VarDef{
     fn get_koopa(&self) -> Self::Output{
         let s = self.get_name();
         if !self.array_init.is_empty(){
-            let mut unique_name = "".to_string();
+            let mut unique_name:String;
             {
                 let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                let mut g = m.borrow_mut().get_mut();
-                let mut go =  g.now_symbol.as_mut().unwrap().lock().unwrap();
+                let g = m.borrow_mut().get_mut();
+                let go =  g.now_symbol.as_mut().unwrap().lock().unwrap();
                 unique_name = self.get_name() + &format!("_{}",go.symbol_id)
             }
             let mut total = format!("\t@{} = alloc ", unique_name );
@@ -2333,7 +2304,7 @@ impl GetKoopa for VarDef{
             }
             {
                 let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                let mut g = m.borrow_mut().get_mut();
+                let g = m.borrow_mut().get_mut();
                 let mut go =  g.now_symbol.as_mut().unwrap().lock().unwrap();
                 go.insert_var_point_symbol((&s).to_string(), &dim_idx);
             }
@@ -2347,7 +2318,7 @@ impl GetKoopa for VarDef{
                                                 0, true);
                     let product = dim_idx.iter().fold(1, |x, a| x * a);
                     let len = vec.len() as i32;
-                    for i in (0..product - len){
+                    for _ in 0..product - len{
                         vec.push(ValueOrExp::Value(0));
                     }
                     let mut idx = 0 as usize;
@@ -2371,7 +2342,7 @@ impl GetKoopa for VarDef{
                 } else { //todo: 对数组变量的0初始化？
                     let mut vec: Vec<ValueOrExp> = Vec::new();
                     let product = dim_idx.iter().fold(1, |x, a| x * a);
-                    for i in (0..product){
+                    for _ in 0..product{
                         vec.push(ValueOrExp::Value(0));
                     }
                     let mut idx = 0;
@@ -2400,20 +2371,20 @@ impl GetKoopa for VarDef{
             total
         }else{
             if let Some(i) = &self.initval{
-                let mut k = i.get_koopa();
+                let k = i.get_koopa();
                 if let Ok(l)= k.parse::<i32>(){
                     let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                    let mut g = m.borrow_mut().get_mut();
+                    let g = m.borrow_mut().get_mut();
                     let mut go =  g.now_symbol.as_mut().unwrap().lock().unwrap();
                     go.insert_var_symbol(s, Some(l));
                     let unique_name = self.get_name() + &format!("_{}",go.symbol_id);
                     format!("\t@{} = alloc {}\n",unique_name, "i32")
                         + &format!("\tstore {}, @{}\n",l, unique_name)
                 } else {
-                    let mut unique_name = "".to_string();
+                    let mut unique_name:String;
                     {
                         let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                        let mut g = m.borrow_mut().get_mut();
+                        let g = m.borrow_mut().get_mut();
                         let mut go =  g.now_symbol.as_mut().unwrap().lock().unwrap();
                         go.insert_var_symbol((&s).to_string(), None);
                         unique_name = self.get_name() + &format!("_{}",go.symbol_id);
@@ -2423,7 +2394,7 @@ impl GetKoopa for VarDef{
                 }
             } else {
                 let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                let mut g = m.borrow_mut().get_mut();
+                let g = m.borrow_mut().get_mut();
                 let mut go =  g.now_symbol.as_mut().unwrap().lock().unwrap();
                 go.insert_var_symbol((&s).to_string(), None);
                 let unique_name = self.get_name() + &format!("_{}",go.symbol_id);
@@ -2525,11 +2496,8 @@ impl GetKoopa for InitVal{
     type Output = String;
     fn get_koopa(&self) -> Self::Output {
         if let Some(a) = self.exp.as_ref().unwrap().eval_const(){
-            if let Value::Int(i) = a {
-                format!("{}", i)
-            } else {
-                "".to_string()
-            }
+            let Value::Int(i) = a;
+            format!("{}", i)
         } else {
             self.exp.as_ref().unwrap().get_koopa()
         }
@@ -2538,11 +2506,8 @@ impl GetKoopa for InitVal{
 impl InitVal{
     fn get_global_definition(&self) -> String {
         if let Some(a) = self.exp.as_ref().unwrap().eval_const(){
-            if let Value::Int(i) = a {
-                format!("{}", i)
-            } else {
-                "".to_string()
-            }
+            let Value::Int(i) = a;
+            format!("{}", i)
         } else {
             unreachable!()
         }
@@ -2559,7 +2524,7 @@ impl GetKoopa for ConstDecl{
             let s = self.const_def.get_name();
             {
                 let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                let mut g = m.borrow_mut().get_mut();
+                let g = m.borrow_mut().get_mut();
                 let mut k = g.now_symbol.as_mut().unwrap().lock().unwrap();
                 k.insert_const_symbol(s, i);
             }
@@ -2572,7 +2537,7 @@ impl GetKoopa for ConstDecl{
                 if let Some(a) = q.eval_const(){
                     let Value::Int(i) = a;
                     let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                    let mut g = m.borrow_mut().get_mut();
+                    let g = m.borrow_mut().get_mut();
                     let mut k = g.now_symbol.as_mut().unwrap().lock().unwrap();
                     k.insert_const_symbol(q.get_name(), i);
                 } else {
@@ -2587,11 +2552,11 @@ impl ConstDef{
     fn get_global_definition(&self) -> String{
         let s = self.get_name();
         if !self.array_idx.is_empty(){
-            let mut unique_name = "".to_string();
+            let mut unique_name :String;
             {
                 let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                let mut g = m.borrow_mut().get_mut();
-                let mut go =  g.global_symbol_table.as_mut().unwrap().lock().unwrap();
+                let g = m.borrow_mut().get_mut();
+                let go =  g.global_symbol_table.as_mut().unwrap().lock().unwrap();
                 unique_name = self.get_name() + &format!("_{}",go.symbol_id);
             }
             let mut total = format!("global @{} = alloc ", unique_name );
@@ -2614,7 +2579,7 @@ impl ConstDef{
             }
             {
                 let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                let mut g = m.borrow_mut().get_mut();
+                let g = m.borrow_mut().get_mut();
                 let mut go =  g.global_symbol_table.as_mut().unwrap().lock().unwrap();
                 go.insert_const_point_symbol((&s).to_string(), &dim_idx);
             }
@@ -2671,13 +2636,13 @@ impl ConstDef{
 impl GetKoopa for ConstDef{
     type Output = String;
     fn get_koopa(&self) -> Self::Output{
-        let mut s = self.get_name();
+        let s = self.get_name();
         if !self.array_idx.is_empty(){
-            let mut unique_name = "".to_string();
+            let mut unique_name:String;
             {
                 let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                let mut g = m.borrow_mut().get_mut();
-                let mut go =  g.now_symbol.as_mut().unwrap().lock().unwrap();
+                let g = m.borrow_mut().get_mut();
+                let go =  g.now_symbol.as_mut().unwrap().lock().unwrap();
                 unique_name = self.get_name() + &format!("_{}",go.symbol_id);
             }
             let mut total = format!("\t@{} = alloc", unique_name );
@@ -2700,7 +2665,7 @@ impl GetKoopa for ConstDef{
             }
             {
                 let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                let mut g = m.borrow_mut().get_mut();
+                let g = m.borrow_mut().get_mut();
                 let mut go =  g.now_symbol.as_mut().unwrap().lock().unwrap();
                 go.insert_const_point_symbol((&s).to_string(), &dim_idx);
             }
@@ -2714,7 +2679,7 @@ impl GetKoopa for ConstDef{
                                                     0, true);
                     let product = dim_idx.iter().fold(1, |x, a| x * a);
                     let len = vec.len() as i32;
-                    for i in (0..product - len){
+                    for _ in 0..product - len{
                         vec.push(0);
                     }
                     let mut idx = 0 as usize;
@@ -2840,7 +2805,6 @@ impl EvalConst for EqExp{
                     match op{
                         EqOperation::Eq => return Some(Value::Int(if i1 == i2 {1} else {0})),
                         EqOperation::NEq => return Some(Value::Int(if i1 != i2 {1} else {0})),
-                        _ => return None,
                     }
                 } else {
                     return None;
@@ -2870,7 +2834,6 @@ impl EvalConst for RelExp{
                         RelOperation::LessEq => return Some(Value::Int(if i1 <= i2 {1} else {0})),
                         RelOperation::GreaterEq => return Some(Value::Int(if i1 >= i2 {1} else
                         {0})),
-                        _ => return None,
                     }
                 } else {
                     return None;
@@ -2897,7 +2860,6 @@ impl EvalConst for AddExp{
                     match op{
                         AddOperator::Add => return Some(Value::Int(i1 + i2)),
                         AddOperator::Sub => return Some(Value::Int(i1 - i2)),
-                        _ => return None,
                     }
                 } else {
                     return None;
@@ -2925,7 +2887,6 @@ impl EvalConst for MulExp{
                         MulOperator::Times => return Some(Value::Int(i1 * i2)),
                         MulOperator::Divide => return Some(Value::Int(i1 / i2)),
                         MulOperator::Quote => return Some(Value::Int(i1 % i2)),
-                        _ => return None,
                     }
                 } else {
                     return None;
@@ -2944,7 +2905,7 @@ impl EvalConst for UnaryExp{
         if let Some(exp) = &self.primary_exp{
             exp.eval_const()
         } else if let Some((op, exp))  = &self.unary_exp{
-            let mut tmp:Option<Value>;
+            let tmp:Option<Value>;
             match op.unary_op{
                 UnaryOperator::Add => tmp = exp.eval_const(),
                 UnaryOperator::False => {
@@ -2957,7 +2918,6 @@ impl EvalConst for UnaryExp{
                                     tmp = Some(Value::Int(0));
                                 }
                             },
-                            _ => tmp = None
                         }
                     } else {
                         tmp = None;
@@ -2967,13 +2927,11 @@ impl EvalConst for UnaryExp{
                     if let Some(v) = exp.eval_const(){
                         match v{
                             Value::Int(i) => tmp = Some(Value::Int(-i)),
-                            _ => tmp = None,
                         }
                     } else {
                         tmp = None;
                     }
                 },
-                _ => tmp = None,
             }
             return tmp;
         } else {
@@ -2992,21 +2950,21 @@ impl EvalConst for PrimaryExp{
                 let mut global_bool = false;
                 {
                     let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                    let mut k = g.borrow_mut().get_mut();
-                    let mut s = k.now_symbol.as_ref().unwrap().lock().unwrap();
+                    let k = g.borrow_mut().get_mut();
+                    let s = k.now_symbol.as_ref().unwrap().lock().unwrap();
                     const_bool = s.exist_const_symbol(&tmp.ident)
                 }
                 {
                     let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                    let mut k = g.borrow_mut().get_mut();
+                    let k = g.borrow_mut().get_mut();
                     let mut gg = k.global_symbol_table.as_ref().unwrap().lock().unwrap();
                     global_bool = gg.exist_global_inited_symbol(&tmp.ident);
 
                 }
                 if  const_bool { //todo: 将global的条件给去掉了，因为global还是会被修改的
                     let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
-                    let mut k = g.borrow_mut().get_mut();
-                    let mut s = k.now_symbol.as_ref().unwrap().lock().unwrap();
+                    let k = g.borrow_mut().get_mut();
+                    let s = k.now_symbol.as_ref().unwrap().lock().unwrap();
                     let i = s.get_value(&tmp.ident);
                     return Some(Value::Int(i))
                 } else {

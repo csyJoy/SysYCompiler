@@ -1,12 +1,6 @@
-use std::borrow::BorrowMut;
 use std::collections::HashMap;
-use std::hash;
-use std::path::Prefix::Disk;
-use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use std::sync::Weak;
-use crate::frontEnd::ast::{FuncType, PrimaryExp};
-use crate::frontEnd::GLOBAL_SYMBOL_TABLE_ALLOCATOR;
+use crate::front_end::ast::FuncType;
 
 #[derive(Debug)]
 pub struct SymbolTable{
@@ -223,7 +217,6 @@ impl SymbolTable{
             if let Some(a) = &b.value{
                 match a{
                     Value::Int(i) => *i,
-                    _ => 0
                 }
             } else {
                 0
@@ -252,7 +245,7 @@ impl SymbolTable{
             a.reg
         } else {
             if let Some(c) = &self.last_scpoe{
-                let mut d = c.lock().unwrap();
+                let d = c.lock().unwrap();
                 d.get_var_reg(name)
             } else {
                 None

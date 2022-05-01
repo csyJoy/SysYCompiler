@@ -1,28 +1,21 @@
 extern crate koopa;
 
-use std::any::Any;
 use lalrpop_util::lalrpop_mod;
 use std::env::args;
 use std::fs::read_to_string;
 use std::io::{Result, Write};
 use std::fs::File;
-use crate::frontEnd::symbol_table::GlobalSymbolTableAllocator;
-use std::sync::Mutex;
-use std::cell::RefCell;
-use koopa::ir::Program;
 
 
-mod codeGenerator;
-mod frontEnd;
+mod code_generator;
+mod front_end;
 mod optim;
 
-use frontEnd::parser::GetKoopa;
-use crate::codeGenerator::code_generator::GenerateAsm;
-use lazy_static::lazy_static;
+use front_end::parser::GetKoopa;
+use crate::code_generator::code_generator::GenerateAsm;
 // 引用 lalrpop 生成的解析器
 // 因为我们刚刚创建了 sysy.lalrpop, 所以模块名是 sysy
 
-#[macro_use]
 
 lalrpop_mod!(sysy);
 
