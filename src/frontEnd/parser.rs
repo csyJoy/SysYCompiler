@@ -149,7 +149,8 @@ fn test(a_string: String, c_string: String, a_reg_idx: i32, c_reg_idx: i32,reg_i
 }
 
 pub trait GetKoopa{
-    fn get_koopa(&self) -> String;
+    type Output;
+    fn get_koopa(&self) -> Self::Output;
 }
 pub trait EvalConst{
     fn eval_const(&self) -> Option<Value>;
@@ -159,6 +160,7 @@ pub trait GetName{
 }
 
 impl GetKoopa for CompUnit{
+    type Output = String;
     fn get_koopa(&self) -> String {
         let mut s = "".to_string();
         {
@@ -178,8 +180,13 @@ impl GetKoopa for CompUnit{
         s
     }
 }
+pub enum GlobalItemType{
+    Func((String, )),
+    Decl(String)
+}
 impl GetKoopa for GlobalItem{
-    fn get_koopa(&self) -> String{
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output{
         match &self{
             GlobalItem::Decl(decl) => {
                 decl.get_global_definition()
@@ -838,7 +845,8 @@ impl ConstDecl{
     }
 }
 impl GetKoopa for FuncParams{
-    fn get_koopa(& self) -> String {
+    type Output = String;
+    fn get_koopa(& self) -> Self::Output{
         let mut ident = &self.param.ident;
         let mut btype = &self.param.btype;
         let mut idx = &self.param.array_idx;
@@ -1039,7 +1047,8 @@ impl FuncParams{
 }
 
 impl GetKoopa for FuncDef{
-    fn get_koopa(&self) -> String {
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output {
         let mut typ: &str;
         let mut sr: String = "".to_string();
         {
@@ -1136,7 +1145,8 @@ impl GetKoopa for FuncDef{
 }
 
 impl GetKoopa for Block {
-    fn get_koopa(&self) -> String {
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output {
         {
             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
             let mut g = m.borrow_mut().get_mut();
@@ -1156,7 +1166,8 @@ impl GetKoopa for Block {
 }
 
 impl GetKoopa for Vec<BlockItem>{
-    fn get_koopa(&self) -> String {
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output {
         let mut s = "".to_string();
         let mut first = true;
         for v in self{
@@ -1178,7 +1189,8 @@ impl GetKoopa for Vec<BlockItem>{
 }
 
 impl GetKoopa for BlockItem{
-    fn get_koopa(&self) -> String {
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output {
         if let Some(decl) = &self.decl{
             decl.get_koopa()
         } else if let Some(stmt) = &self.stmt{
@@ -1191,7 +1203,8 @@ impl GetKoopa for BlockItem{
 
 
 impl GetKoopa for Stmt{
-    fn get_koopa(&self) -> String {
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output {
         let mut o = global_return_switch.lock().unwrap();
         let mut q = *o.get_mut();
         let mut w = global_while_switch.lock().unwrap();
@@ -1450,7 +1463,8 @@ impl GetKoopa for Stmt{
 }
 
 impl GetKoopa for Exp{
-    fn get_koopa(&self) -> String {
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output {
         if let Some(a) = &self.exp{
             a.get_koopa()
         } else {
@@ -1465,7 +1479,8 @@ impl EvalConst for Exp{
 }
 
 impl GetKoopa for UnaryExp{
-    fn get_koopa(&self) -> String {
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output {
         if let Some(a) = &self.primary_exp{
             a.get_koopa()
         }  else {
@@ -1623,7 +1638,8 @@ impl PrimaryExp{
 }
 
 impl GetKoopa for Lval{
-    fn get_koopa(&self) -> String {
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output {
         let mut symbol_id = 0;
         let mut raw_ptr_bool = false;
         {
@@ -1718,7 +1734,8 @@ impl GetKoopa for Lval{
 }
 
 impl GetKoopa for PrimaryExp{
-    fn get_koopa(&self) -> String {
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output {
         if let Some(a) = &self.exp{
             a.get_koopa()
         }  else {
@@ -1948,7 +1965,8 @@ impl GetKoopa for PrimaryExp{
 }
 
 impl GetKoopa for MulExp{
-    fn get_koopa(&self) -> String {
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output {
         if let Some(a) = &self.unary_exp{
             a.get_koopa()
         } else {
@@ -1974,7 +1992,8 @@ impl GetKoopa for MulExp{
 }
 
 impl GetKoopa for AddExp{
-    fn get_koopa(&self) -> String {
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output {
         if let Some(a) = &self.mul_exp{
             a.get_koopa()
         } else {
@@ -2000,7 +2019,8 @@ impl GetKoopa for AddExp{
 }
 
 impl GetKoopa for RelExp {
-    fn get_koopa(&self) -> String {
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output {
         if let Some(a) = &self.add_exp{
             a.get_koopa()
         } else {
@@ -2027,7 +2047,8 @@ impl GetKoopa for RelExp {
 }
 
 impl GetKoopa for EqExp {
-    fn get_koopa(&self) -> String {
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output {
         if let Some(a) = &self.rel_exp{
             a.get_koopa()
         } else {
@@ -2052,7 +2073,8 @@ impl GetKoopa for EqExp {
 }
 
 impl GetKoopa for LAndExp{
-    fn get_koopa(&self) -> String {
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output {
         if let Some(a) = &self.eq_exp{
             a.get_koopa()
         } else {
@@ -2126,7 +2148,8 @@ impl GetKoopa for LAndExp{
 }
 
 impl GetKoopa for LOrExp{
-    fn get_koopa(&self) -> String {
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output {
         if let Some(a) = &self.land_exp{
             a.get_koopa()
         } else {
@@ -2254,7 +2277,8 @@ impl GetKoopa for LOrExp{
     }
 }
 impl GetKoopa for Decl{
-    fn get_koopa(&self) -> String {
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output {
         if let Some(a) = &self.const_decl{
             a.get_koopa()
         } else if let Some(b) = &self.var_decl{
@@ -2266,7 +2290,8 @@ impl GetKoopa for Decl{
 }
 
 impl GetKoopa for VarDecl{
-    fn get_koopa(&self) -> String {
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output {
         let mut s = "".to_string();
         s += &self.var_def.get_koopa();
         for var in &self.var_def_vec{
@@ -2277,7 +2302,8 @@ impl GetKoopa for VarDecl{
 }
 
 impl GetKoopa for VarDef{
-    fn get_koopa(&self) -> String{
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output{
         let s = self.get_name();
         if !self.array_init.is_empty(){
             let mut unique_name = "".to_string();
@@ -2496,7 +2522,8 @@ impl GetName for VarDef{
 }
 
 impl GetKoopa for InitVal{
-    fn get_koopa(&self) -> String {
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output {
         if let Some(a) = self.exp.as_ref().unwrap().eval_const(){
             if let Value::Int(i) = a {
                 format!("{}", i)
@@ -2523,7 +2550,8 @@ impl InitVal{
 }
 
 impl GetKoopa for ConstDecl{
-    fn get_koopa(&self) -> String {
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output {
         //todo: 没有加vec的处理
         let mut s = "".to_string();
         if let Some(a) = self.const_def.eval_const(){
@@ -2641,7 +2669,8 @@ impl ConstDef{
 }
 // this impl only for the const array
 impl GetKoopa for ConstDef{
-    fn get_koopa(&self) -> String{
+    type Output = String;
+    fn get_koopa(&self) -> Self::Output{
         let mut s = self.get_name();
         if !self.array_idx.is_empty(){
             let mut unique_name = "".to_string();
