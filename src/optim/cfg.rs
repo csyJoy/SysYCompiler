@@ -1,8 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::fmt::Debug;
 use std::hash::Hash;
 use koopa::ir::{BasicBlock, Function, FunctionData, Program, Value};
 use koopa::ir::ValueKind;
 
+#[derive(Debug)]
 pub struct ControlFlowGraph{
     pub enter: CfgInner,
     pub exit: CfgInner,
@@ -10,6 +12,7 @@ pub struct ControlFlowGraph{
     pub name: String,
 }
 
+#[derive(Debug, Clone)]
 pub struct CfgInner{
     pub father: Vec<Option<BasicBlock>>,
     pub son: Vec<Option<BasicBlock>>,
@@ -43,12 +46,18 @@ impl CfgInner{
                         // println!("{:#?}", self.dfg().value(ret.value().unwrap()));
                         // println!("=============================================");
                         if let Some(val) = ret.value(){
-                            use_value.insert(val.clone());
+                            if define_value.contains(&val){
+                                use_value.insert(val.clone());
+                            }
                         }
                     }
                     ValueKind::Binary(bin) => {
-                        use_value.insert(bin.lhs());
-                        use_value.insert(bin.rhs());
+                        if define_value.contains(&bin.lhs()){
+                            use_value.insert(bin.lhs());
+                        }
+                        if define_value.contains(&bin.rhs()){
+                            use_value.insert(bin.rhs());
+                        }
                         define_value.insert(inst.clone());
                     }
                     ValueKind::Store(store) => {
@@ -60,7 +69,9 @@ impl CfgInner{
                         define_value.insert(inst.clone());
                     }
                     ValueKind::Branch(branch) => {
-                        use_value.insert(branch.cond().clone());
+                        if define_value.contains(&branch.cond()){
+                            use_value.insert(branch.cond().clone());
+                        }
                     }
                     ValueKind::Jump(jump) => {
                     }
@@ -68,13 +79,21 @@ impl CfgInner{
                     }
                     ValueKind::GetElemPtr(get_elem_ptr) => {
                         define_value.insert(inst.clone());
-                        use_value.insert(get_elem_ptr.src().clone());
-                        use_value.insert(get_elem_ptr.index().clone());
+                        if define_value.contains(&get_elem_ptr.src()){
+                            use_value.insert(get_elem_ptr.src().clone());
+                        }
+                        if define_value.contains(&get_elem_ptr.index()){
+                            use_value.insert(get_elem_ptr.index().clone());
+                        }
                     }
                     ValueKind::GetPtr(get_ptr) => {
                         define_value.insert(inst.clone());
-                        use_value.insert(get_ptr.src().clone());
-                        use_value.insert(get_ptr.index().clone());
+                        if define_value.contains(&get_ptr.index()){
+                            use_value.insert(get_ptr.src().clone());
+                        }
+                        if define_value.contains(&get_ptr.index()){
+                            use_value.insert(get_ptr.index().clone());
+                        }
                     }
                     _ => unreachable!(),
                 }
@@ -85,6 +104,7 @@ impl CfgInner{
         }
     }
 }
+#[derive(Debug)]
 pub struct ActiveVar{
     in_var: HashMap<BBType, HashSet<Value>>,
     out_var: HashMap<BBType, HashSet<Value>>,
@@ -97,15 +117,18 @@ impl ActiveVar{
         }
     }
 }
-trait ActiveAnalysis: BuildControlFlowGraph{
-    fn get_define_and_uses(&self) -> HashMap<Function, HashMap<BasicBlock, (HashMap<usize, Value>, HashMap<usize, Value>)>>;
-    fn active_analysis(&self) -> Vec<ActiveVar>;
+
+pub trait ActiveAnalysis: BuildControlFlowGraph{
+    fn get_define_and_uses(&self) -> HashMap<Function, HashMap<BasicBlock, (HashSet<Value>, HashSet<Value>)>>;
+    fn active_analysis(&self) -> (HashMap<Function, ActiveVar>, HashMap<Function, ControlFlowGraph>);
 }
 
 
-trait BuildControlFlowGraph{
+pub trait BuildControlFlowGraph{
     fn build_control_flow_graph(&self) -> HashMap<Function, ControlFlowGraph>;
+    fn print_control_flow_graph(&self, cfg: HashMap<Function, ControlFlowGraph>);
 }
+
 impl BuildControlFlowGraph for Program{
     ///build control flow graph for function in program
     fn build_control_flow_graph(&self) -> HashMap<Function, ControlFlowGraph> {
@@ -115,16 +138,18 @@ impl BuildControlFlowGraph for Program{
             let func_data = self.func(func.clone());
             cfg.name = func_data.name().to_string();
             for (bb, bbn) in func_data.layout().bbs(){
-                let mut cfg_inner = CfgInner::new(bb.clone());
-                let bb_data = func_data.dfg().bbs().get(&bb);
-                let bb_data = bb_data.unwrap();
-                if let Some(name) = bb_data.name(){
-                    if name == "%enter"{
-                        cfg.enter.son.push(Some(bb.clone()));
-                        cfg_inner.father.push(Some(bb.clone()));
+                if let None = cfg.other.get(bb){
+                    let mut cfg_inner = CfgInner::new(bb.clone());
+                    let bb_data = func_data.dfg().bbs().get(&bb);
+                    let bb_data = bb_data.unwrap();
+                    if let Some(name) = bb_data.name(){
+                        if name == "%entry"{
+                            cfg.enter.son.push(Some(bb.clone()));
+                            cfg_inner.father.push(None);
+                        }
                     }
+                    cfg.other.insert(bb.clone(), cfg_inner);
                 }
-                cfg.other.insert(bb.clone(), cfg_inner);
                 for inst in bbn.insts().keys(){
                     let val = func_data.dfg().value(inst.clone());
                     match val.kind(){
@@ -134,6 +159,12 @@ impl BuildControlFlowGraph for Program{
                                 tar.attach_with_father_node(bb.clone());
                                 let cfg_inner = cfg.other.get_mut(&bb.clone()).unwrap();
                                 cfg_inner.attach_with_son_node(target.clone());
+                           } else {
+                                let mut tar = CfgInner::new(target.clone());
+                                tar.attach_with_father_node(bb.clone());
+                                let cfg_inner = cfg.other.get_mut(&bb.clone()).unwrap();
+                                cfg_inner.attach_with_son_node(target.clone());
+                                cfg.other.insert(target, tar);
                            }
                        }
                        ValueKind::Branch(br) => {
@@ -143,11 +174,23 @@ impl BuildControlFlowGraph for Program{
                                tar.attach_with_father_node(bb.clone());
                                let cfg_inner = cfg.other.get_mut(&bb.clone()).unwrap();
                                cfg_inner.attach_with_son_node(true_bb.clone());
+                           } else {
+                               let mut tar = CfgInner::new(true_bb.clone());
+                               tar.attach_with_father_node(bb.clone());
+                               let cfg_inner = cfg.other.get_mut(&bb.clone()).unwrap();
+                               cfg_inner.attach_with_son_node(true_bb.clone());
+                               cfg.other.insert(true_bb, tar);
                            }
                            if let Some(tar) = cfg.other.get_mut(&false_bb){
                                tar.attach_with_father_node(bb.clone());
                                let cfg_inner = cfg.other.get_mut(&bb.clone()).unwrap();
                                cfg_inner.attach_with_son_node(false_bb.clone());
+                           } else {
+                               let mut tar = CfgInner::new(false_bb.clone());
+                               tar.attach_with_father_node(bb.clone());
+                               let cfg_inner = cfg.other.get_mut(&bb.clone()).unwrap();
+                               cfg_inner.attach_with_son_node(false_bb.clone());
+                               cfg.other.insert(false_bb, tar);
                            }
                        }
                        ValueKind::Return(ret) => {
@@ -176,11 +219,27 @@ impl ControlFlowGraph {
             name: "".to_string(),
         }
     }
+    fn flatten(&self) -> VecDeque<BasicBlock>{
+        let mut flatten = VecDeque::new();
+        let mut son = &self.enter.son;
+        let mut middle = VecDeque::new();
+        middle.push_back(son);
+        while(!middle.is_empty()){
+            let son = middle.pop_front().unwrap();
+            for s in son{
+                if let Some(bb) = s{
+                    if !flatten.contains(bb){
+                        flatten.push_back(bb.clone());
+                        middle.push_back(&self.other.get(bb).unwrap().son);
+                    }
+                }
+            }
+        }
+        flatten
+    }
 }
 impl ControlFlowGraph{
-    fn get_all_defines_and_uses(&self, func_data: &FunctionData) -> HashMap<BasicBlock,
-        (HashSet<Value>,
-                                                                    HashSet<Value>)>{
+    fn get_all_defines_and_uses(&self, func_data: &FunctionData) -> HashMap<BasicBlock, (HashSet<Value>, HashSet<Value>)>{
         let begin = &self.enter;
         let mut defines_and_uses: HashMap<BasicBlock, (HashSet<Value>, HashSet<Value>)> =
             HashMap::new();
@@ -200,24 +259,28 @@ impl ControlFlowGraph{
     }
 }
 /// this is function use out[B] and get In[B]
-fn get_in<'a>(out: &'a mut HashSet<Value>, define_value: &HashMap<usize, Value>, use_value:
-&HashMap<usize, Value>) -> (&'a HashSet<Value>, bool) {
+fn get_in<'a>(out: &'a mut HashSet<Value>, define_value: &HashSet<Value>, use_value:
+&HashSet<Value>) -> (&'a HashSet<Value>, bool) {
     let mut changed = false;
     let mut define_set:HashSet<Value> = HashSet::new();
     let mut use_set:HashSet<Value> = HashSet::new();
-    for (idx, val) in define_value{
+    for val in define_value{
         let result = out.remove(val);
         if result {
             define_set.insert(val.clone());
         }
     }
-    for (idx, val) in use_value{
+    for val in use_value{
         let result = out.insert(val.clone());
-        use_set.insert(val.clone());
+        if result {
+            use_set.insert(val.clone());
+        }
     }
-    let tmp = use_set.difference(&define_set);
-    let tmp = tmp.collect::<HashSet<&Value>>();
-    if !tmp.is_empty(){
+    let tmp1 = use_set.difference(&define_set);
+    let tmp2 = define_set.difference(&use_set);
+    let tmp1 = tmp1.collect::<HashSet<&Value>>();
+    let tmp2 = tmp2.collect::<HashSet<&Value>>();
+    if !tmp1.is_empty() || !tmp2.is_empty(){
         changed = true;
     }
     (out, changed)
@@ -232,14 +295,14 @@ fn merge_in(in_vec: &Vec<HashSet<Value>>) -> HashSet<Value>{
     }
     out
 }
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Debug, Eq, Hash, PartialEq)]
 enum BBType{
     Enter,
     Exit,
     Other(BasicBlock)
 }
-fn get_in_and_out(cfg: &ControlFlowGraph, define_and_use: &HashMap<BasicBlock, (HashMap<usize, Value>,
-                                                                                HashMap<usize, Value>)
+fn get_in_and_out(cfg: &ControlFlowGraph, define_and_use: &HashMap<BasicBlock, (HashSet<Value>,
+                                                                                HashSet<Value>)
 >) -> (HashMap<BBType, HashSet<Value>>, HashMap<BBType, HashSet<Value>>){
     let mut bb_in: HashMap<BBType, HashSet<Value>> = HashMap::new();
     let mut bb_out: HashMap<BBType, HashSet<Value>> = HashMap::new();
@@ -250,8 +313,10 @@ fn get_in_and_out(cfg: &ControlFlowGraph, define_and_use: &HashMap<BasicBlock, (
         bb_in.insert(BBType::Other(bb.clone()), HashSet::new());
     }
     let mut in_changed = true;
+    let mut count = 0;
     while in_changed{
         in_changed = false;
+        count += 1;
         let now = &cfg.exit;
         let mut global_vec: Vec<BasicBlock> = Vec::new();
         for fa in &now.father{
@@ -259,6 +324,33 @@ fn get_in_and_out(cfg: &ControlFlowGraph, define_and_use: &HashMap<BasicBlock, (
                 global_vec.push(bb.clone());
             }
         }
+        // println!("====================iter{}===========================", count);
+        // for (bb, set) in bb_in.iter(){
+        //     let mut s: String = "".to_string();
+        //     for value in set.iter(){
+        //         s += &format!("{:#?} ", value);
+        //     }
+        //     if let BBType::Other(bb) = bb{
+        //         println!("{:#?}: {}", bb, s);
+        //     } else if let BBType::Enter = bb{
+        //         println!("enter: {}", s);
+        //     } else if let BBType::Exit = bb{
+        //         println!("exit: {}", s);
+        //     }
+        // }
+        // for (bb, set) in bb_out.iter(){
+        //     let mut s: String = "".to_string();
+        //     for value in set.iter(){
+        //         s += &format!("{:#?} ", value);
+        //     }
+        //     if let BBType::Other(bb) = bb{
+        //         println!("{:#?}: {}", bb, s);
+        //     } else if let BBType::Enter = bb{
+        //         println!("enter: {}", s);
+        //     } else if let BBType::Exit = bb{
+        //         println!("exit: {}", s);
+        //     }
+        // }
         while !global_vec.is_empty(){
             let now_bb = global_vec.remove(0);
             let now_cfg = cfg.other.get(&now_bb).unwrap();
@@ -270,6 +362,13 @@ fn get_in_and_out(cfg: &ControlFlowGraph, define_and_use: &HashMap<BasicBlock, (
                 }
             }
             let mut b_out =  merge_in(&vec);
+            if let Some(pre_out) = bb_out.get(&BBType::Other(now_bb)){
+                let col1 = b_out.difference(&pre_out).collect::<HashSet<&Value>>();
+                let col2 = pre_out.difference(&b_out).collect::<HashSet<&Value>>();
+                if col1.is_empty() && col2.is_empty(){
+                    continue;
+                }
+            }
             bb_out.remove(&BBType::Other(now_bb.clone()));
             bb_out.insert(BBType::Other(now_bb.clone()), b_out.clone());
             let (define_value, use_value) = define_and_use.get(&now_bb).unwrap();
@@ -278,10 +377,10 @@ fn get_in_and_out(cfg: &ControlFlowGraph, define_and_use: &HashMap<BasicBlock, (
             bb_in.insert(BBType::Other(now_bb.clone()), b_in.clone());
             if result{
                 in_changed = true;
-            }
-            for fa in &now_cfg.father{
-                if let Some(fa) = fa{
-                    global_vec.push(fa.clone());
+                for fa in &now_cfg.father{
+                    if let Some(fa) = fa{
+                        global_vec.push(fa.clone());
+                    }
                 }
             }
         }
@@ -359,83 +458,337 @@ fn get_in_and_out(cfg: &ControlFlowGraph, define_and_use: &HashMap<BasicBlock, (
 
 
 impl ActiveAnalysis for Program{
-    fn active_analysis(&self) -> Vec<ActiveVar> {
-        let mut active_var_vec: Vec<ActiveVar> = Vec::new();
+    fn active_analysis(&self) -> (HashMap<Function, ActiveVar>, HashMap<Function, ControlFlowGraph>) {
+        let mut active_var_vec = HashMap::new();
         let define_and_use_all = self.get_define_and_uses();
         let cfg_all = Self::build_control_flow_graph(self);
         for (func, cfg) in &cfg_all{
             if let Some(define_and_use) = define_and_use_all.get(func){
                 let (bb_in, bb_out) = get_in_and_out(&cfg, &define_and_use);
-                active_var_vec.push(ActiveVar{in_var: bb_in, out_var: bb_out});
+                active_var_vec.insert(func.clone() ,ActiveVar{in_var: bb_in, out_var: bb_out});
             } else {
                 unreachable!()
             }
         }
-        active_var_vec
+        (active_var_vec, cfg_all)
     }
-    fn get_define_and_uses(&self) -> HashMap<Function, HashMap<BasicBlock, (HashMap<usize, Value>, HashMap<usize, Value>)>> {
-        let mut define_uses_map: HashMap<Function, HashMap<BasicBlock, (HashMap<usize, Value>,
-                                                                     HashMap<usize, Value>)>> =
-            HashMap::new();
+    fn get_define_and_uses(&self) -> HashMap<Function, HashMap<BasicBlock, (HashSet<Value>,
+                                                                            HashSet<Value>)>> {
+        let mut define_uses_map = HashMap::new();
         for func in self.func_layout(){
-            let mut define_and_uses: HashMap<BasicBlock, (HashMap<usize, Value>, HashMap<usize,
-                Value>)> = HashMap::new();
+            let mut define_and_uses = HashMap::new();
             let func_data = self.func(func.clone());
             for (bb, bbn) in func_data.layout().bbs(){
-                let mut inst_cnt = 0 as usize;
-                let mut define_value: HashMap<usize, Value> = HashMap::new();
-                let mut use_value: HashMap<usize, Value> = HashMap::new();
-                let bb_data = func_data.dfg().bbs().get(&bb);
-                let bb_data = bb_data.unwrap();
+                let mut define_value = HashSet::new();
+                let mut use_value = HashSet::new();
                 for inst in bbn.insts().keys(){
-                    let val = func_data.dfg().value(inst.clone());
-                    match val.kind(){
+                    let value_data = func_data.dfg().value(*inst);
+                    match value_data.kind(){
                         ValueKind::Return(ret) => {
-                            // println!("{:#?}", ret);
-                            // println!("{:#?}", self.dfg().value(ret.value().unwrap()));
-                            // println!("=============================================");
                             if let Some(val) = ret.value(){
-                                use_value.insert(inst_cnt, val.clone());
+                                if !define_value.contains(&val){
+                                    use_value.insert(val.clone());
+                                }
                             }
                         }
                         ValueKind::Binary(bin) => {
-                            use_value.insert(inst_cnt, bin.lhs());
-                            use_value.insert(inst_cnt, bin.rhs());
-                            define_value.insert(inst_cnt, inst.clone());
+                            if !define_value.contains(&bin.lhs()){
+                                use_value.insert(bin.lhs());
+                            }
+                            if !define_value.contains(&bin.rhs()){
+                                use_value.insert(bin.rhs());
+                            }
+                            define_value.insert(inst.clone());
                         }
                         ValueKind::Store(store) => {
+                            if !define_value.contains(&store.dest()){
+                                use_value.insert(store.dest());
+                            }
+                            if !define_value.contains(&store.value()){
+                                use_value.insert(store.value());
+                            }
                         }
                         ValueKind::Load(load) => {
-                            define_value.insert(inst_cnt, inst.clone());
+                            if !define_value.contains(&load.src()){
+                                use_value.insert(load.src());
+                            }
+                            define_value.insert(inst.clone());
                         }
                         ValueKind::Alloc(alloc) =>{
-                            define_value.insert(inst_cnt, inst.clone());
+                            define_value.insert(inst.clone());
                         }
                         ValueKind::Branch(branch) => {
-                            use_value.insert(inst_cnt, branch.cond().clone());
+                            if !define_value.contains(&branch.cond()){
+                                use_value.insert(branch.cond().clone());
+                            }
                         }
                         ValueKind::Jump(jump) => {
                         }
                         ValueKind::Call(call) => {
+                            for arg in call.args(){
+                                if !define_value.contains(arg){
+                                    use_value.insert(arg.clone());
+                                }
+                            }
+                            define_value.insert(inst.clone());
                         }
                         ValueKind::GetElemPtr(get_elem_ptr) => {
-                            define_value.insert(inst_cnt, inst.clone());
-                            use_value.insert(inst_cnt, get_elem_ptr.src().clone());
-                            use_value.insert(inst_cnt, get_elem_ptr.index().clone());
+                            define_value.insert(inst.clone());
+                            if !define_value.contains(&get_elem_ptr.src()){
+                                use_value.insert(get_elem_ptr.src().clone());
+                            }
+                            if !define_value.contains(&get_elem_ptr.index()){
+                                use_value.insert(get_elem_ptr.index().clone());
+                            }
                         }
                         ValueKind::GetPtr(get_ptr) => {
-                            define_value.insert(inst_cnt, inst.clone());
-                            use_value.insert(inst_cnt, get_ptr.src().clone());
-                            use_value.insert(inst_cnt, get_ptr.index().clone());
+                            define_value.insert(inst.clone());
+                            if !define_value.contains(&get_ptr.index()){
+                                use_value.insert(get_ptr.src().clone());
+                            }
+                            if !define_value.contains(&get_ptr.index()){
+                                use_value.insert(get_ptr.index().clone());
+                            }
                         }
                         _ => unreachable!(),
                     }
-                    inst_cnt += 1;
                 }
                 define_and_uses.insert(bb.clone(), (define_value, use_value));
             }
             define_uses_map.insert(func.clone(), define_and_uses);
         }
         define_uses_map
+    }
+}
+
+pub struct Interval{
+    interval: VecDeque<(i32, i32)>,
+    margins: HashMap<BasicBlock, (i32, i32)>
+}
+impl Interval{
+    fn new() -> Interval{
+        Interval{interval: VecDeque::new(), margins: HashMap::new()}
+    }
+    fn new_margin(&mut self, bb: BasicBlock, left: i32, right: i32){
+        if !self.margins.contains_key(&bb){
+            self.margins.insert(bb, (left, right));
+        }
+    }
+    /// cut the range, if not contain, do nothing
+    fn cut(&mut self, bb: &BasicBlock, now: i32){
+        if let Some((left, right)) = self.interval.pop_front(){
+            if now > left {
+                self.interval.push_front((now, right));
+            }
+        }
+    }
+    fn insert(&mut self, bb: &BasicBlock, now: i32){
+        let (left, _) = self.margins.get(bb).unwrap();
+        self.interval.push_front((*left, now));
+    }
+
+}
+pub trait IntervalAnalysis{
+    fn get_interval(&self) -> HashMap<Function, HashMap<Value, Interval>>;
+    fn print_interval(&self, interval: &HashMap<Function, HashMap<Value, Interval>>);
+}
+impl IntervalAnalysis for Program{
+    fn print_interval(&self, interval: &HashMap<Function, HashMap<Value, Interval>>) {
+        for (func, inter) in interval{
+            if !inter.is_empty(){
+                let dfg = self.func(func.clone()).dfg();
+                let mut cnt = 1;
+                for (value, interval) in inter{
+                    if let Some(a) = dfg.value(value.clone()).name().as_ref(){
+                        let mut str = format!("{}: ", *a);
+                        for (left, right) in &interval.interval{
+                            str += &format!("({}, {}) ",left, right);
+                        }
+                        str += "\n";
+                        print!("{}", str);
+                    } else {
+                        let mut str = format!("%{}: ", cnt);
+                        for (left, right) in &interval.interval{
+                            str += &format!("({}, {}) ",left, right);
+                        }
+                        str += "\n";
+                        print!("{}", str);
+                        cnt += 1;
+                    }
+                }
+            }
+        }
+    }
+    fn get_interval(&self) -> HashMap<Function, HashMap<Value, Interval>> {
+        let mut all_interval = HashMap::new();
+        let (act, cfg) = self.active_analysis();
+        for (func, cfg) in cfg.iter(){
+            if !cfg.other.is_empty(){
+                let mut flatten = cfg.flatten();
+                let act = act.get(func).unwrap();
+                let mut cnt = 0 as i32;
+                let mut func_interval = HashMap::new();
+                while !flatten.is_empty(){
+                    let bb = flatten.pop_back().unwrap();
+                    if let Some(bbn) = self.func(func.clone()).layout().bbs().node(&bb) {
+                        let func_data = self.func(func.clone());
+                        let begin  = cnt - bbn.insts().len() as i32;
+                        if let Some(out_var) = act.out_var.get(&BBType::Other(bb)){
+                            for elem in out_var {
+                                let mut interval = Interval::new();
+                                interval.new_margin(bb.clone(), begin, cnt);
+                                func_interval.insert(elem.clone(), interval);
+                            }
+                        }
+                        let mut vec = Vec::new();
+                        for inst in bbn.insts().keys(){
+                            vec.push(inst);
+                        }
+                        for inst in vec.iter().rev(){
+                            let value_data = func_data.dfg().value(*(*inst));
+                            match value_data.kind() {
+                                ValueKind::Return(ret) => {
+                                    if let Some(val) = ret.value() {
+                                        if !func_interval.contains_key(&val){
+                                            let mut interval = Interval::new();
+                                            interval.new_margin(bb.clone(), begin, cnt);
+                                            func_interval.insert(val.clone(), interval);
+                                        }
+                                        func_interval.get_mut(&val).unwrap().insert(&bb, cnt);
+                                    }
+                                }
+                                ValueKind::Binary(bin) => {
+                                    if !func_interval.contains_key(inst){
+                                        let mut interval = Interval::new();
+                                        interval.new_margin(bb.clone(), begin, cnt);
+                                        func_interval.insert(*inst.clone(), interval);
+                                    }
+                                    if !func_interval.contains_key(&bin.rhs()){
+                                        let mut interval = Interval::new();
+                                        interval.new_margin(bb.clone(), begin, cnt);
+                                        func_interval.insert(bin.rhs().clone(), interval);
+                                    }
+                                    if !func_interval.contains_key(&bin.lhs()){
+                                        let mut interval = Interval::new();
+                                        interval.new_margin(bb.clone(), begin, cnt);
+                                        func_interval.insert(bin.lhs().clone(), interval);
+                                    }
+                                    func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
+                                    func_interval.get_mut(&bin.rhs()).unwrap().insert(&bb, cnt);
+                                    func_interval.get_mut(&bin.lhs()).unwrap().insert(&bb, cnt);
+                                }
+                                ValueKind::Store(store) => {
+                                    if !func_interval.contains_key(&store.value()){
+                                        let mut interval = Interval::new();
+                                        interval.new_margin(bb.clone(), begin, cnt);
+                                        func_interval.insert(store.value().clone(), interval);
+                                    }
+                                    func_interval.get_mut(&store.value()).unwrap().insert(&bb, cnt);
+                                    if !func_interval.contains_key(&store.dest()){
+                                        let mut interval = Interval::new();
+                                        interval.new_margin(bb.clone(), begin, cnt);
+                                        func_interval.insert(store.dest().clone(), interval);
+                                    }
+                                    func_interval.get_mut(&store.dest()).unwrap().insert(&bb, cnt);
+                                }
+                                ValueKind::Load(load) => {
+                                    if !func_interval.contains_key(inst){
+                                        let mut interval = Interval::new();
+                                        interval.new_margin(bb.clone(), begin, cnt);
+                                        func_interval.insert(*inst.clone(), interval);
+                                    }
+                                    func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
+                                    if !func_interval.contains_key(&load.src()){
+                                        let mut interval = Interval::new();
+                                        interval.new_margin(bb.clone(), begin, cnt);
+                                        func_interval.insert(load.src().clone(), interval);
+                                    }
+                                    func_interval.get_mut(&load.src()).unwrap().insert(&bb, cnt);
+                                }
+                                ValueKind::Alloc(alloc) => {
+                                    if !func_interval.contains_key(inst){
+                                        let mut interval = Interval::new();
+                                        interval.new_margin(bb.clone(), begin, cnt);
+                                        func_interval.insert(*inst.clone(), interval);
+                                    }
+                                    func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
+                                }
+                                ValueKind::Branch(branch) => {
+                                    if !func_interval.contains_key(&branch.cond()){
+                                        let mut interval = Interval::new();
+                                        interval.new_margin(bb.clone(), begin, cnt);
+                                        func_interval.insert(branch.cond().clone(), interval);
+                                    }
+                                    func_interval.get_mut(&branch.cond()).unwrap().insert(&bb, cnt);
+                                }
+                                ValueKind::Jump(jump) => {}
+                                ValueKind::Call(call) => {}
+                                ValueKind::GetElemPtr(get_elem_ptr) => {
+                                    if !func_interval.contains_key(inst){
+                                        let mut interval = Interval::new();
+                                        interval.new_margin(bb.clone(), begin, cnt);
+                                        func_interval.insert(*inst.clone(), interval);
+                                    }
+                                    if !func_interval.contains_key(&get_elem_ptr.src()){
+                                        let mut interval = Interval::new();
+                                        interval.new_margin(bb.clone(), begin, cnt);
+                                        func_interval.insert(get_elem_ptr.src().clone(), interval);
+                                    }
+                                    if !func_interval.contains_key(&get_elem_ptr.index()){
+                                        let mut interval = Interval::new();
+                                        interval.new_margin(bb.clone(), begin, cnt);
+                                        func_interval.insert(get_elem_ptr.index().clone(), interval);
+                                    }
+                                    func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
+                                    func_interval.get_mut(&get_elem_ptr.src()).unwrap().insert(&bb, cnt);
+                                    func_interval.get_mut(&get_elem_ptr.index()).unwrap().insert(&bb, cnt);
+                                }
+                                ValueKind::GetPtr(get_ptr) => {
+                                    if !func_interval.contains_key(inst) {
+                                        let mut interval = Interval::new();
+                                        interval.new_margin(bb.clone(), begin, cnt);
+                                        func_interval.insert(*inst.clone(), interval);
+                                    }
+                                    if !func_interval.contains_key(&get_ptr.src()) {
+                                        let mut interval = Interval::new();
+                                        interval.new_margin(bb.clone(), begin, cnt);
+                                        func_interval.insert(get_ptr.src().clone(), interval);
+                                    }
+                                    if !func_interval.contains_key(&get_ptr.index()){
+                                        let mut interval = Interval::new();
+                                        interval.new_margin(bb.clone(), begin, cnt);
+                                        func_interval.insert(get_ptr.index().clone(), interval);
+                                    }
+                                    //todo: 在进入一个新的bb之后，我们需要将bb的margin加入interval中
+                                    func_interval.get_mut(&inst).unwrap().new_margin(&bb, begin, cnt);
+                                    func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
+                                    func_interval.get_mut(&get_ptr.src()).unwrap().insert(&bb, cnt);
+                                    func_interval.get_mut(&get_ptr.src()).unwrap().insert(&bb, cnt);
+                                    func_interval.get_mut(&get_ptr.index()).unwrap().insert(&bb, cnt);
+                                    func_interval.get_mut(&get_ptr.index()).unwrap().insert(&bb, cnt);
+                                }
+                                _ => unreachable!(),
+                            }
+                            cnt -= 1;
+                        }
+                    }
+                }
+                for (val, mut idx) in &mut func_interval{
+                    for i in 0..idx.interval.len(){
+                        if let Some((left, right)) = idx.interval.get_mut(i){
+                            *left -= cnt;
+                            *right -= cnt;
+                        }
+                    }
+                    for (bb, (left, right)) in &mut idx.margins{
+                        *left -= cnt;
+                        *right -= cnt;
+                    }
+                }
+                all_interval.insert(func.clone(), func_interval);
+            }
+        }
+        self.print_interval(&all_interval);
+        all_interval
     }
 }
