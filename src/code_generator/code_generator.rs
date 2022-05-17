@@ -6,10 +6,12 @@ use lazy_static::lazy_static;
 use std::sync::Mutex;
 use std::cell::RefCell;
 use std::cmp::min;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use koopa::ir::entities::{Value, Program, FunctionData, ValueKind, ValueData};
 use koopa::ir::Function;
 use koopa::ir::ValueKind::Integer;
+use rand::Rng;
+use crate::code_generator::code_generator::StorePos::Stack;
 
 pub trait GenerateAsm{
     fn generate(&self) -> String;
@@ -18,25 +20,28 @@ pub trait GenerateAsm{
 pub trait RegAlloctor{
     fn store_type_bound(&mut self, value: Value, store_type: StoreType);
     fn get_offset_reg(&mut self, offset: i32) -> (String, i32);
-    fn alloc_reg(&mut self) -> Option<i32>;
+    fn alloc_tmp_reg(&mut self) -> Option<i32>;
     fn free_reg(&mut self, idx: i32) -> Option<i32>;
-    #[deprecated]
-    fn bound_reg(&mut self, value: Value, idx: i32) -> Option<i32>;
-    #[deprecated]
-    fn get_reg(&self, value: Value) -> Option<i32>;
-
     fn bound_space(&mut self, value: Value, size: i32);
-    fn get_space(&self, value: Value) -> Option<i32>;
+    fn get_space(&self, value: Value, size: i32) -> Option<i32>;
+    fn return_reg(&mut self, value: Value) -> String;
+    fn borrow_reg(&mut self, value: &Value, size: i32) -> (i32, String);
 }
 pub enum StoreType{
     Value, // single value or one dimension array
     Array,
     Point //the dimension of array
 }
+pub enum StorePos{
+    Reg(String),
+    Stack(String)
+}
 struct GlobalRegAlloctor{
-    reg_pool: Vec<i32>,
-    map: HashMap<Value, i32>,
+    tmp_reg_pool: Vec<i32>,
+    stack_allocation: HashMap<Value, i32>,
+    reg_allocation: HashMap<Value, i32>,
     store_type: HashMap<Value, StoreType>,
+    borrowed_reg: HashMap<Value, VecDeque<(i32, i32)>>,
     offset: i32
 }
 impl GlobalRegAlloctor{
@@ -45,11 +50,13 @@ impl GlobalRegAlloctor{
         for i in (bottom..top+1).rev(){
             v.push(i);
         }
-        GlobalRegAlloctor{ reg_pool: v, map: HashMap::new(), store_type: HashMap::new() ,offset: 0 }
+        GlobalRegAlloctor{ tmp_reg_pool: v, reg_allocation: HashMap::new(), stack_allocation:
+        HashMap::new(), store_type: HashMap::new() ,borrowed_reg: HashMap::new(), offset: 0 }
     }
-    fn fresh(&mut self){
+    fn fresh(&mut self, reg_allocation: HashMap<Value, i32>){
         // self.reg_pool is no need to fresh, because at the end of a function, all reg is free
-        self.map.clear();
+        self.reg_allocation = reg_allocation;
+        self.stack_allocation.clear();
         self.store_type.clear();
         self.offset = 0;
     }
@@ -65,30 +72,37 @@ impl RegAlloctor for GlobalRegAlloctor{
             let div = offset / (1 << 12);
             let quo = offset % (1 << 12);
             if quo < (1 << 11) {
-                let g = self.alloc_reg().unwrap();
+                let g = self.alloc_tmp_reg().unwrap();
                 reg = g;
                 s += &format!("\tlui t{}, {}\n", g, div);
                 s += &format!("\taddi t{}, t{}, {}\n", g, g, quo);
             } else {
-                let g = self.alloc_reg().unwrap();
+                let g = self.alloc_tmp_reg().unwrap();
                 reg = g;
                 s += &format!("\tlui t{}, {}\n", g, div + 1);
                 s += &format!("\taddi t{}, t{}, {}\n", g, g, quo - (1 << 12));
             }
         } else if offset >= (1 << 11){
-            let g = self.alloc_reg().unwrap();
+            let g = self.alloc_tmp_reg().unwrap();
             reg = g;
             s += &format!("\tlui t{}, {}\n", g, 1);
             s += &format!("\taddi t{}, t{}, {}\n", g, g, offset - (1 << 12));
         } else {
-            let g = self.alloc_reg().unwrap();
+            let g = self.alloc_tmp_reg().unwrap();
             reg = g;
             s += &format!("\tli t{}, {}\n", g,  offset);
         }
         (s.to_string(), reg)
     }
+    fn alloc_tmp_reg(&mut self) -> Option<i32> {
+        if !self.tmp_reg_pool.is_empty(){
+            self.tmp_reg_pool.pop()
+        } else {
+            None
+        }
+    }
     fn free_reg(&mut self, idx: i32) -> Option<i32>{
-        for i in &self.reg_pool{
+        for i in &self.tmp_reg_pool {
             if idx == *i{
                 unreachable!();
             }
@@ -96,36 +110,67 @@ impl RegAlloctor for GlobalRegAlloctor{
         if idx < 0 || idx >= 7 {
             None
         } else {
-            self.reg_pool.push(idx);
+            self.tmp_reg_pool.push(idx);
             Some(idx)
         }
     }
-    fn alloc_reg(&mut self) -> Option<i32> {
-        if !self.reg_pool.is_empty(){
-            self.reg_pool.pop()
-        } else {
-            None
-        }
-    }
-    fn get_reg(&self, value: Value) -> Option<i32> {
-        Some(*self.map.get(&value).unwrap())
-    }
-    fn bound_reg(&mut self, value: Value, idx: i32) -> Option<i32> {
-        self.map.insert(value, idx);
-        Some(idx)
-    }
+    // fn bound_reg(&mut self, value: Value, idx: i32) -> Option<i32> {
+    //     self.map.insert(value, StorePos::Reg(idx));
+    //     Some(idx)
+    // }
+    // fn get_reg(&self, value: Value) -> Option<i32> {
+    //     Some(*self.map.get(&value).unwrap())
+    // }
     fn bound_space(&mut self, value: Value, size: i32){
-        self.map.insert(value, self.offset);
+        self.stack_allocation.insert(value, self.offset);
         self.offset += size;
     }
-    fn get_space(&self, value: Value) -> Option<i32> {
-        if let Some(offset) = self.map.get(&value){
-            Some(*offset)
-        } else {
-            None
+    /// if value store in reg, return the reg name
+    /// if value store in stack, before we load it to the reg
+    ///     1. if temp reg not full, alloc a temp reg for it
+    ///     2. else alloc a memory for any S_n reg, then move value to S_n, after borrowing,
+    ///        store value back to memory, and recover S_n
+    fn get_space(&mut self, value: Value, size: i32) -> (StorePos, String){
+        if let Some(reg) = self.reg_allocation.get(&value){
+            (StorePos::Reg(format!("s{}", *reg)), "".to_string())
+        } else if let Some(offset) = self.stack_allocation.get(&value){
+            let (idx, store_string) = self.borrowed_reg(value, size);
+            let (load_string, reg_idx) = self.get_offset_reg(*offset);
+            let now = store_string + load_string + &format!("sub t{}, sp, t{}", reg_idx, reg_idx) +
+                &format!("lw \
+            s{}, 0(t{})", idx, reg_idx);
+            self.free_reg(reg_idx);
+            (StorePos::Stack(format!("s{}", reg_idx)), now)
         }
     }
-
+    /// before borrow reg, make sure before value is stored correctly, return the store code, and
+    /// the reg idx
+    fn borrow_reg(&mut self, value: &Value, size: i32) -> (i32, String){
+        let borrowed_reg = rand::thread_rng().gen_range(0, 12);
+        self.bound_space(value.clone(), size);
+        let Some(offset) = self.stack_allocation.get(value);
+        if let Some(queue) = self.borrowed_reg.get_mut(value){
+            queue.push_front((borrowed_reg, *offset));
+        } else {
+            let mut queue = VecDeque::new();
+            queue.push_front((borrowed_reg, *offset));
+            self.borrowed_reg.insert(value.clone(), queue);
+        }
+        let (before, reg_idx) = self.get_offset_reg(*offset);
+        let now = before + &format!("sub, t{}, sp, t{}", reg_idx, reg_idx) + &format!("sw s{}, 0\
+        (t{})", borrowed_reg, reg_idx);
+        self.free_reg(reg_idx);
+        (borrowed_reg, now)
+    }
+    /// after return reg, make sure last stored reg value is wrote back to reg, return the load code
+    fn return_reg(&mut self, value: Value) -> String{
+        let Some((reg, offset)) = self.borrowed_reg.get(&value).unwrap().front();
+        let (before, reg_idx) = self.get_offset_reg(*offset);
+        let now = before + &format!("sub, t{}, sp, t{}", reg_idx, reg_idx) + &format!("lw s{}, 0\
+        (t{})", reg, reg_idx);
+        self.free_reg(reg_idx);
+        now
+    }
 }
 lazy_static!{
     static ref global_reg_allocator: Mutex<RefCell<GlobalRegAlloctor>> = Mutex::new(RefCell::new
@@ -485,7 +530,7 @@ impl SplitGen for FunctionData {
             }
         }
         if let ValueKind::Integer(i) =  self.dfg().value(idx).kind(){
-            idx_reg = g.alloc_reg().unwrap();
+            idx_reg = g.alloc_tmp_reg().unwrap();
             *s += &format!("\tli t{}, {}\n",idx_reg, i.value());
         } else{
             let mut offset = 0;
@@ -506,14 +551,14 @@ impl SplitGen for FunctionData {
         } else {
             let mut m = global_varable.lock().unwrap();
             let k = m.get_mut(&src).unwrap();
-            src_reg = g.alloc_reg().unwrap();
+            src_reg = g.alloc_tmp_reg().unwrap();
             *s += &format!("\tla t{}, {}\n",src_reg, k[1..].to_string());
         }
-        let type_size_reg = g.alloc_reg().unwrap();
+        let type_size_reg = g.alloc_tmp_reg().unwrap();
         *s += &format!("\tli t{}, {}\n", type_size_reg, ty_size);
         *s += &format!("\tmul t{}, t{}, t{}\n",idx_reg, idx_reg, type_size_reg);
         g.free_reg(type_size_reg);
-        let rst_reg = g.alloc_reg().unwrap();
+        let rst_reg = g.alloc_tmp_reg().unwrap();
         *s += &format!("\tadd t{}, t{}, t{}\n",rst_reg, src_reg, idx_reg);
         g.free_reg(src_reg);
         g.free_reg(idx_reg);
@@ -550,7 +595,7 @@ impl SplitGen for FunctionData {
             }
         }
         if let ValueKind::Integer(i) =  self.dfg().value(idx).kind(){
-            idx_reg = g.alloc_reg().unwrap();
+            idx_reg = g.alloc_tmp_reg().unwrap();
             *s += &format!("\tli t{}, {}\n",idx_reg, i.value());
         } else{
             let offset = g.get_space(idx).unwrap();
@@ -572,11 +617,11 @@ impl SplitGen for FunctionData {
         } else {
             let mut m = global_varable.lock().unwrap();
             let k = m.get_mut(&src).unwrap();
-            src_reg = g.alloc_reg().unwrap();
+            src_reg = g.alloc_tmp_reg().unwrap();
             *s += &format!("\tla t{}, {}\n",src_reg, k[1..].to_string());
         }
         //todo: 没有添加对大的type_size的特殊处理
-        let type_size_reg = g.alloc_reg().unwrap();
+        let type_size_reg = g.alloc_tmp_reg().unwrap();
         *s += &format!("\tli t{}, {}\n", type_size_reg, ty_size); //todo:对不同维度有不同的值，需要判断
         *s += &format!("\tmul t{}, t{}, t{}\n",idx_reg, idx_reg, type_size_reg);
         g.free_reg(type_size_reg);
@@ -600,7 +645,7 @@ impl SplitGen for FunctionData {
                 *s += &format!("\tli a{}, {}\n", i, int.value());
             } else {
                 let src_offset = g.get_space(arg_vec[idx]).unwrap();
-                let reg_idx = g.alloc_reg().unwrap();
+                let reg_idx = g.alloc_tmp_reg().unwrap();
                 let (ss, reg) = g.get_offset_reg(src_offset);
                 *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw t{}, 0(t{})\n\tmv a{}, t{}\n", reg_idx, reg, i,
                                reg_idx));
@@ -612,7 +657,7 @@ impl SplitGen for FunctionData {
         while len - 8 > 0{
             let value = arg_vec[idx];
             if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
-                let tmp = g.alloc_reg().unwrap();
+                let tmp = g.alloc_tmp_reg().unwrap();
                 let offset = ((idx - 8) * 4) as i32;
                 let (ss, reg) = g.get_offset_reg(offset);
                 *s += &(ss +&format!("\tadd t{}, sp, t{}\n",reg, reg)+ &(format!("\tli t{}, {}\n",tmp , i.value()) +  &format!("\tsw t{}, 0(t{})\
@@ -621,7 +666,7 @@ impl SplitGen for FunctionData {
                 g.free_reg(tmp);
             } else {
                 let src_offset = g.get_space(value).unwrap();
-                let reg_idx = g.alloc_reg().unwrap();
+                let reg_idx = g.alloc_tmp_reg().unwrap();
                 let (src_ss, src_reg) = g.get_offset_reg(src_offset);
                 let offset = ((idx - 8) * 4) as i32;
                 let (ss, reg) = g.get_offset_reg(offset);
@@ -689,12 +734,12 @@ impl SplitGen for FunctionData {
                 r_s = format!("x0");
                 r_use_x0 = true;
             } else {
-                tmp_r = r.alloc_reg().unwrap();
+                tmp_r = r.alloc_tmp_reg().unwrap();
                 *s += &format!("\tli t{}, {}\n", tmp_r,i.value());
                 r_s = format!("t{}", tmp_r);
             }
         } else {
-            tmp_r = r.alloc_reg().unwrap();
+            tmp_r = r.alloc_tmp_reg().unwrap();
             let offset = r.get_space(r_value).unwrap();
             let (ss, reg) = r.get_offset_reg(offset);
             *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw t{}, 0(t{})\n", tmp_r, reg));
@@ -706,12 +751,12 @@ impl SplitGen for FunctionData {
                 l_s = format!("x0");
                 l_use_x0 = true;
             } else {
-                tmp_l = r.alloc_reg().unwrap();
+                tmp_l = r.alloc_tmp_reg().unwrap();
                 *s += &format!("\tli t{}, {}\n", tmp_l, i.value());
                 l_s = format!("t{}", tmp_l);
             }
         } else {
-            tmp_l = r.alloc_reg().unwrap();
+            tmp_l = r.alloc_tmp_reg().unwrap();
             let offset = r.get_space(l_value).unwrap();
             let (ss, reg) = r.get_offset_reg(offset);
             *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw t{}, 0(t{})\n", tmp_l, reg));
@@ -719,7 +764,7 @@ impl SplitGen for FunctionData {
             r.free_reg(reg);
             // r.free_reg(tmp_l);
         }
-        idx = r.alloc_reg().unwrap();
+        idx = r.alloc_tmp_reg().unwrap();
         match op{
             BinaryOp::Add => {
                 bin_operation = "add".to_string();
@@ -742,7 +787,7 @@ impl SplitGen for FunctionData {
                 *s += &format!("\t{} t{}, {}, {}\n", bin_operation, idx, l_s, r_s);
             },
             BinaryOp::Eq => {
-                let tmp = r.alloc_reg().unwrap();
+                let tmp = r.alloc_tmp_reg().unwrap();
                 *s += &format!("\txor t{}, {}, {}\n", tmp, l_s, r_s);
                 *s += &format!("\tseqz t{}, t{}\n", idx, tmp);
                 r.free_reg(tmp);
@@ -756,15 +801,15 @@ impl SplitGen for FunctionData {
                 *s += &format!("\t{} t{}, {}, {}\n", bin_operation, idx, l_s, r_s);
             },
             BinaryOp::NotEq => {
-                let tmp = r.alloc_reg().unwrap();
+                let tmp = r.alloc_tmp_reg().unwrap();
                 *s += &format!("\txor t{}, {}, {}\n", tmp, l_s, r_s);
                 *s += &format!("\tsnez t{}, t{}\n", idx, tmp);
                 r.free_reg(tmp);
             },
             BinaryOp::Le => {
                 bin_operation = "slt".to_string();
-                let tmp = r.alloc_reg().unwrap();
-                let tmp1 = r.alloc_reg().unwrap();
+                let tmp = r.alloc_tmp_reg().unwrap();
+                let tmp1 = r.alloc_tmp_reg().unwrap();
                 *s += &format!("\txor t{}, {}, {}\n", tmp, l_s, r_s);
                 *s += &format!("\tseqz t{}, t{}\n", idx, tmp);
                 *s += &format!("\t{} t{}, {}, {}\n", bin_operation, tmp1, l_s, r_s);
@@ -782,8 +827,8 @@ impl SplitGen for FunctionData {
             },
             BinaryOp::Ge =>{
                 bin_operation = "slt".to_string();
-                let tmp = r.alloc_reg().unwrap();
-                let tmp1 = r.alloc_reg().unwrap();
+                let tmp = r.alloc_tmp_reg().unwrap();
+                let tmp1 = r.alloc_tmp_reg().unwrap();
                 *s += &format!("\txor t{}, {}, {}\n", tmp, l_s, r_s);
                 *s += &format!("\tseqz t{}, t{}\n", idx, tmp);
                 *s += &format!("\t{} t{}, {}, {}\n", bin_operation, tmp1, r_s, l_s);
@@ -830,7 +875,7 @@ impl SplitGen for FunctionData {
             g.free_reg(reg);
             g.free_reg(src_reg);
         } else if let Some(name) = var.get(&src_value){
-            let tmp_reg = g.alloc_reg().unwrap();
+            let tmp_reg = g.alloc_tmp_reg().unwrap();
             let (ss, reg) = g.get_offset_reg(offset);
             *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tla t{}, {}\n\tlw t{}, 0(t{})\n\tsw t{}, 0(t{})\n",tmp_reg, name[1..] .to_string(), tmp_reg, tmp_reg,tmp_reg,reg));
             g.free_reg(tmp_reg);
@@ -844,12 +889,12 @@ impl SplitGen for FunctionData {
         let var = global_varable.lock().unwrap();
         let mut m = global_reg_allocator.lock().unwrap();
         let g = m.get_mut();
-        let reg_idx = g.alloc_reg().unwrap();
+        let reg_idx = g.alloc_tmp_reg().unwrap();
         if let Some(offset) = g.get_space(dest){
             if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
                 let (ss, reg)  = g.get_offset_reg(offset);
                 if let StoreType::Point = g.store_type.get(&dest).unwrap(){
-                    let tmp = g.alloc_reg().unwrap();
+                    let tmp = g.alloc_tmp_reg().unwrap();
                     *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw t{}, 0(t{})\
                 \n", tmp, reg) + &format!("\tsw t{}, 0(t{})\n", reg_idx, tmp));
                     //+&format!("\tadd t{}, sp, t{}\n", tmp, tmp)
@@ -895,7 +940,7 @@ impl SplitGen for FunctionData {
             }
         } else if let Some(name) = var.get(&dest){
             if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
-                let tmp_reg = g.alloc_reg().unwrap();
+                let tmp_reg = g.alloc_tmp_reg().unwrap();
                 *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &format!("\tla t{}, \
                 {}\n\tsw t{}, 0(t{})\n", tmp_reg, name[1..].to_string(), reg_idx, tmp_reg));
                 g.free_reg(tmp_reg);
@@ -905,11 +950,11 @@ impl SplitGen for FunctionData {
                 match ty{
                     ValueKind::FuncArgRef(func_arg_ref) => {
                         if func_arg_ref.index() < 8{
-                            let tmp = g.alloc_reg().unwrap();
+                            let tmp = g.alloc_tmp_reg().unwrap();
                             *s += &format!("\tla t{}, {}\n\tsw a{}, 0(t{})\n",tmp, name[1..].to_string() , func_arg_ref.index(), tmp);
                             g.free_reg(tmp);
                         } else {
-                            let tmp = g.alloc_reg().unwrap();
+                            let tmp = g.alloc_tmp_reg().unwrap();
                             let mut k = now_sp_size.lock().unwrap();
                             let sp_size = k.get_mut();
                             let offset = *sp_size + 4 * (func_arg_ref.index() as i32 - 8);
@@ -921,7 +966,7 @@ impl SplitGen for FunctionData {
                     }
                     _ => {
                         let src_offset = g.get_space(value).unwrap();
-                        let tmp = g.alloc_reg().unwrap();
+                        let tmp = g.alloc_tmp_reg().unwrap();
                         let (ss, reg) = g.get_offset_reg(src_offset);
                         *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw t{}, 0(t{})\n\tla t{}, {}\n",reg, reg,
                                         tmp, name[1..].to_string()) + &format!("\tsw t{}, 0(t{})\n", reg, tmp));
@@ -970,7 +1015,7 @@ impl SplitGen for FunctionData {
         let else_branch = branch.false_bb();
         let mut k = global_reg_allocator.lock().unwrap();
         let g = k.get_mut();
-        let reg_idx = g.borrow_mut().alloc_reg().unwrap();
+        let reg_idx = g.borrow_mut().alloc_tmp_reg().unwrap();
         if let Some(offset) = g.borrow_mut().get_space(cond){
             let (ss, reg) = g.get_offset_reg(offset);
             *s +=  &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw t{}, 0(t{})\n",reg_idx, reg));

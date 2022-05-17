@@ -1,8 +1,11 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::cell::Cell;
+use std::cmp::{Ordering, Reverse};
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
 use koopa::ir::{BasicBlock, Function, FunctionData, Program, Value};
 use koopa::ir::ValueKind;
+use priority_queue::PriorityQueue;
 
 #[derive(Debug)]
 pub struct ControlFlowGraph{
@@ -564,6 +567,82 @@ impl ActiveAnalysis for Program{
     }
 }
 
+struct StartQueueInner(Value, i32);
+
+impl Eq for StartQueueInner {}
+
+impl PartialEq<Self> for StartQueueInner {
+    fn eq(&self, other: &Self) -> bool {
+        self.1 == other.1
+    }
+}
+
+impl PartialOrd<Self> for StartQueueInner {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.1 < other.1{
+            Some(Ordering::Less)
+        } else if self.1 > other.1{
+            Some(Ordering::Greater)
+        } else {
+            Some(Ordering::Equal)
+        }
+    }
+}
+
+impl Ord for StartQueueInner {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+pub struct IntervalHandler{
+    inner: HashMap<Value, Interval>,
+    start: BinaryHeap<Reverse<StartQueueInner>>,
+    end: BinaryHeap<Reverse<StartQueueInner>>
+}
+impl IntervalHandler{
+    pub(crate) fn new(inner: HashMap<Function, HashMap<Value, Interval>>) -> HashMap<Function, IntervalHandler>{
+        let mut tmp = HashMap::new();
+        for (func, mut hash_inner) in inner{
+            let size = hash_inner.len();
+            let mut start = BinaryHeap::with_capacity(size);
+            let mut end = BinaryHeap::with_capacity(size);
+            for (val, interval) in &mut hash_inner{
+                let (l ,r) = interval.interval.pop_front().unwrap();
+                start.push(std::cmp::Reverse(StartQueueInner(val.clone(), l)));
+                end.push(std::cmp::Reverse(StartQueueInner(val.clone(),  r)));
+            }
+            tmp.insert(func, IntervalHandler{inner: hash_inner, start, end});
+        }
+        tmp
+    }
+}
+impl Iterator for IntervalHandler{
+    type Item = (Value, Vec<Value>);
+    fn next(&mut self) -> Option<Self::Item> {
+        if !self.start.is_empty(){
+            let mut tmp = Vec::new();
+            let StartQueueInner(val, idx) = self.start.pop().unwrap();
+            while idx >= self.end.peek().unwrap().0.1{
+                tmp.push(self.end.peek().unwrap().0.0.clone());
+            }
+            Some((val, tmp))
+        } else {
+            None
+        }
+    }
+}
+#[cfg(test)]
+#[test]
+fn test(){
+    let mut bin_heap = BinaryHeap::new();
+    for i in 1..13{
+        bin_heap.push(std::cmp::Reverse(i));
+    }
+    while let Some(i) = bin_heap.pop(){
+        println!("{}", i.0);
+    }
+}
+
 pub struct Interval{
     interval: VecDeque<(i32, i32)>,
     margins: HashMap<BasicBlock, (i32, i32)>
@@ -619,32 +698,6 @@ pub trait IntervalAnalysis{
     fn print_interval(&self, interval: &HashMap<Function, HashMap<Value, Interval>>);
 }
 impl IntervalAnalysis for Program{
-    fn print_interval(&self, interval: &HashMap<Function, HashMap<Value, Interval>>) {
-        for (func, inter) in interval{
-            if !inter.is_empty(){
-                let dfg = self.func(func.clone()).dfg();
-                let mut cnt = 1;
-                for (value, interval) in inter{
-                    if let Some(a) = dfg.value(value.clone()).name().as_ref(){
-                        let mut str = format!("{}: ", *a);
-                        for (left, right) in &interval.interval{
-                            str += &format!("({}, {}) ",left, right);
-                        }
-                        str += "\n";
-                        print!("{}", str);
-                    } else {
-                        let mut str = format!("%{}: ", cnt);
-                        for (left, right) in &interval.interval{
-                            str += &format!("({}, {}) ",left, right);
-                        }
-                        str += "\n";
-                        print!("{}", str);
-                        cnt += 1;
-                    }
-                }
-            }
-        }
-    }
     fn get_interval(&self) -> HashMap<Function, HashMap<Value, Interval>> {
         let mut all_interval = HashMap::new();
         let (act, cfg) = self.active_analysis();
@@ -855,8 +908,33 @@ impl IntervalAnalysis for Program{
                 interval_1.merge_interval();
             }
         }
-
-        self.print_interval(&all_interval);
+        // self.print_interval(&all_interval);
         all_interval
+    }
+    fn print_interval(&self, interval: &HashMap<Function, HashMap<Value, Interval>>) {
+        for (func, inter) in interval{
+            if !inter.is_empty(){
+                let dfg = self.func(func.clone()).dfg();
+                let mut cnt = 1;
+                for (value, interval) in inter{
+                    if let Some(a) = dfg.value(value.clone()).name().as_ref(){
+                        let mut str = format!("{}: ", *a);
+                        for (left, right) in &interval.interval{
+                            str += &format!("({}, {}) ",left, right);
+                        }
+                        str += "\n";
+                        print!("{}", str);
+                    } else {
+                        let mut str = format!("%{}: ", cnt);
+                        for (left, right) in &interval.interval{
+                            str += &format!("({}, {}) ",left, right);
+                        }
+                        str += "\n";
+                        print!("{}", str);
+                        cnt += 1;
+                    }
+                }
+            }
+        }
     }
 }

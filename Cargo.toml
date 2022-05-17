@@ -12,3 +12,5 @@ lalrpop-util = { version = "0.19.7", features = ["lexer"] }
 lazy_static = "1.4.0"
 regex = "1"
 koopa = "=0.0.5"
+priority-queue = "1.2.1"
+rand = "0.8.5"
