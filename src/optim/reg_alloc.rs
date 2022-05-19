@@ -38,7 +38,7 @@ impl RegAllocator{
 }
 
 /// reg_alloc take the message of interval of all values, and return the allocation result
-fn reg_alloc(all_interval: HashMap<Function, HashMap<Value, Interval>>) -> HashMap<Function,
+pub fn reg_alloc(all_interval: HashMap<Function, HashMap<Value, Interval>>) -> HashMap<Function,
     HashMap<Value, Option<i32>>>{
     let mut reg_allocator = RegAllocator::new();
     let mut hanles = IntervalHandler::new(all_interval);

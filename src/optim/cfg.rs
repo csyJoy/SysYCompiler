@@ -1,9 +1,11 @@
-use std::cell::Cell;
+use std::borrow::BorrowMut;
+use std::cell::{Cell, Ref};
 use std::cmp::{Ordering, Reverse};
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
-use koopa::ir::{BasicBlock, Function, FunctionData, Program, Value};
+use koopa::ir::{BasicBlock, Function, FunctionData, Program, TypeKind, Value};
+use koopa::ir::entities::ValueData;
 use koopa::ir::ValueKind;
 use priority_queue::PriorityQueue;
 
@@ -462,6 +464,30 @@ fn get_in_and_out(cfg: &ControlFlowGraph, define_and_use: &HashMap<BasicBlock, (
 //     }
 // }
 
+fn check_int(func_data: &FunctionData, val: &Value) -> bool{
+    let dfg = func_data.dfg();
+    let value_kind = dfg.value(val.clone()).kind();
+    if let ValueKind::Integer(_) = value_kind{
+        return true;
+    } else {
+        return false;
+    }
+}
+fn check_func_args(func_data: &FunctionData, val: &Value) -> bool{
+    let dfg = func_data.dfg();
+    if let ValueKind::FuncArgRef(_) = dfg.value(val.clone()).kind(){
+        return true;
+    } else {
+        return false;
+    }
+}
+fn check_global(map: &Ref<HashMap<Value, ValueData>>, val: &Value) -> bool{
+    if let Some(_) = map.get(val){
+        return true;
+    } else {
+        return false;
+    }
+}
 
 impl ActiveAnalysis for Program{
     fn active_analysis(&self) -> (HashMap<Function, ActiveVar>, HashMap<Function, ControlFlowGraph>) {
@@ -478,9 +504,11 @@ impl ActiveAnalysis for Program{
         }
         (active_var_vec, cfg_all)
     }
+    // if the value is a plvalue, it should not be included
     fn get_define_and_uses(&self) -> HashMap<Function, HashMap<BasicBlock, (HashSet<Value>,
                                                                             HashSet<Value>)>> {
         let mut define_uses_map = HashMap::new();
+        let global_val = self.borrow_values();
         for func in self.func_layout(){
             let mut define_and_uses = HashMap::new();
             let func_data = self.func(func.clone());
@@ -492,39 +520,60 @@ impl ActiveAnalysis for Program{
                     match value_data.kind(){
                         ValueKind::Return(ret) => {
                             if let Some(val) = ret.value(){
-                                if !define_value.contains(&val){
+                                if !define_value.contains(&val) && !check_int(func_data, &val) &&
+                                    !check_global(&global_val, &val){
                                     use_value.insert(val.clone());
                                 }
                             }
                         }
                         ValueKind::Binary(bin) => {
-                            if !define_value.contains(&bin.lhs()){
+                            if !define_value.contains(&bin.lhs()) && !check_int(func_data, &bin
+                                .lhs()) && !check_global(&global_val, &bin.lhs()){
                                 use_value.insert(bin.lhs());
                             }
-                            if !define_value.contains(&bin.rhs()){
+                            if !define_value.contains(&bin.rhs()) && !check_int(func_data, &bin
+                                .rhs()) && !check_global(&global_val, &bin.rhs()){
                                 use_value.insert(bin.rhs());
                             }
                             define_value.insert(inst.clone());
                         }
                         ValueKind::Store(store) => {
-                            if !define_value.contains(&store.dest()){
+
+                            if !define_value.contains(&store.dest()) && !check_int(func_data,
+                                                                                   &store.dest())
+                                && !check_global(&global_val, &store.dest()){
                                 use_value.insert(store.dest());
                             }
-                            if !define_value.contains(&store.value()){
+                            if !define_value.contains(&store.value()) && !check_int(func_data,
+                                                                                    &store.value
+                                                                                    ()) &&
+                                !check_func_args(func_data, &store.value()) && !check_global
+                                (&global_val, &store.value()){
                                 use_value.insert(store.value());
                             }
                         }
                         ValueKind::Load(load) => {
-                            if !define_value.contains(&load.src()){
+                            if !define_value.contains(&load.src()) && !check_int(func_data, &load
+                                .src()) && !check_global
+                                (&global_val, &load.src()){
                                 use_value.insert(load.src());
                             }
                             define_value.insert(inst.clone());
                         }
                         ValueKind::Alloc(alloc) =>{
-                            define_value.insert(inst.clone());
+                            if let TypeKind::Pointer(typeid) = func_data.dfg().value(inst.clone()).ty()
+                                .kind(){
+                                if let TypeKind::Array(_, _) = typeid.kind(){
+
+                                } else {
+                                    define_value.insert(inst.clone());
+                                }
+                            }
                         }
                         ValueKind::Branch(branch) => {
-                            if !define_value.contains(&branch.cond()){
+                            if !define_value.contains(&branch.cond()) && !check_int(func_data,
+                                                                                    &branch.cond())&& !check_global
+                                (&global_val, &branch.cond()){
                                 use_value.insert(branch.cond().clone());
                             }
                         }
@@ -532,7 +581,8 @@ impl ActiveAnalysis for Program{
                         }
                         ValueKind::Call(call) => {
                             for arg in call.args(){
-                                if !define_value.contains(arg){
+                                if !define_value.contains(arg) && !check_int(func_data, arg) && !check_global
+                                    (&global_val, &arg){
                                     use_value.insert(arg.clone());
                                 }
                             }
@@ -540,19 +590,31 @@ impl ActiveAnalysis for Program{
                         }
                         ValueKind::GetElemPtr(get_elem_ptr) => {
                             define_value.insert(inst.clone());
-                            if !define_value.contains(&get_elem_ptr.src()){
+                            if !define_value.contains(&get_elem_ptr.src()) && !check_int
+                                (func_data, &get_elem_ptr.src()) && !check_global
+                                (&global_val, &get_elem_ptr.src()){
                                 use_value.insert(get_elem_ptr.src().clone());
                             }
-                            if !define_value.contains(&get_elem_ptr.index()){
+                            if !define_value.contains(&get_elem_ptr.index()) && !check_int
+                                (func_data, &get_elem_ptr.index()) && !check_global
+                                (&global_val, &get_elem_ptr.index()){
                                 use_value.insert(get_elem_ptr.index().clone());
                             }
                         }
                         ValueKind::GetPtr(get_ptr) => {
                             define_value.insert(inst.clone());
-                            if !define_value.contains(&get_ptr.index()){
+                            if !define_value.contains(&get_ptr.src()) && !check_int(func_data,
+                                                                                      &get_ptr
+                                                                                          .src())
+                                && !check_global
+                                (&global_val, &get_ptr.src()){
                                 use_value.insert(get_ptr.src().clone());
                             }
-                            if !define_value.contains(&get_ptr.index()){
+                            if !define_value.contains(&get_ptr.index()) && !check_int(func_data,
+                                                                                      &get_ptr
+                                                                                          .index
+                                                                                          ()) && !check_global
+                                (&global_val, &get_ptr.index()){
                                 use_value.insert(get_ptr.index().clone());
                             }
                         }
