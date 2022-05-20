@@ -423,8 +423,8 @@ fn save_and_recover_reg(set: &HashSet<i32>) -> (String, String){
     let mut s = ("".to_string(), "".to_string());
     let mut sp = 0;
     set.iter().fold((&mut s.0, &mut s.1), |(save, recover), idx|{
-        *save += &format!("\tsw a{} ,{}(sp)\n", idx, sp);
-        *recover = format!("\tlw a{}, {}(sp)\n", idx, sp) + recover;
+        *save += &format!("\tsw s{} ,{}(sp)\n", idx, sp);
+        *recover = format!("\tlw s{}, {}(sp)\n", idx, sp) + recover;
         sp += 4;
         (save, recover)
     });
@@ -1126,7 +1126,7 @@ impl SplitGen for FunctionData {
                            reg_idx, tmp_reg);
             g.free_reg(tmp_reg);
         } else {
-            *s += &format!("\tlw {}, 0({})\n", reg_idx, src_reg_idx);
+            *s += &format!("\tmv {}, {}\n", reg_idx, src_reg_idx);
         }
         if recover_i{
             g.return_reg(value);
