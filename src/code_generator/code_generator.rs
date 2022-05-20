@@ -45,6 +45,7 @@ struct GlobalRegAlloctor{
     reg_allocation: HashMap<Value, Option<i32>>,
     store_type: HashMap<Value, StoreType>,
     borrowed_reg: HashMap<Value, VecDeque<(i32, i32)>>,
+    have_borrowed: VecDeque<i32>,
     offset: i32,
     start_offset: i32
 }
@@ -54,9 +55,13 @@ impl GlobalRegAlloctor{
         for i in (bottom..top+1).rev(){
             v.push(i);
         }
+        let mut queue  = VecDeque::new();
+        for i in (0..12) {
+            queue.push_back(i);
+        }
         GlobalRegAlloctor{ tmp_reg_pool: v, reg_allocation: HashMap::new(), stack_allocation:
         HashMap::new(), store_type: HashMap::new() ,borrowed_reg: HashMap::new(), offset: 0 ,
-            start_offset: 0}
+            start_offset: 0, have_borrowed: queue}
     }
     fn fresh(&mut self, reg_allocation: HashMap<Value, Option<i32>>){
         // self.reg_pool is no need to fresh, because at the end of a function, all reg is free
@@ -158,7 +163,7 @@ impl RegAlloctor for GlobalRegAlloctor{
     /// before borrow reg, make sure before value is stored correctly, return the store code, and
     /// the reg idx
     fn borrow_reg(&mut self, value: &Value) -> (i32, String){
-        let borrowed_reg = rand::thread_rng().gen_range(0..12);
+        let borrowed_reg = self.have_borrowed.pop_front().unwrap();
         // self.bound_space(value.clone(), 4);
         let now= format!("\tsw s{}, {}(sp)\n", borrowed_reg, self.start_offset + 4 *
             borrowed_reg);
@@ -183,6 +188,7 @@ impl RegAlloctor for GlobalRegAlloctor{
                 let now = store_before + &format!("\tsub t{}, sp, t{}\n\tsw s{}, 0(t{})\n",
                                                   store_idx, store_idx, reg, store_idx) + &format!("\tlw s{}, {}(sp)\n", reg, offset);
                 self.free_reg(store_idx);
+                self.have_borrowed.push_back(reg);
                 now
             } else {
                 unreachable!()
