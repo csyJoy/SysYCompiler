@@ -338,7 +338,8 @@ fn calculate_and_allocate_space(this: &FunctionData, reg_allocator: &HashMap<Val
         if let Some(idx) = opt{
             vec.insert(*idx);
         } else {
-            *sum += 8;
+            *sum += 4;
+            *sum += 4 * this.dfg().value(val.clone()).used_by().len() as i32;
         }
         (sum, vec)
     });
@@ -411,12 +412,12 @@ fn calculate_and_allocate_space(this: &FunctionData, reg_allocator: &HashMap<Val
         let mut m = now_sp_size.lock().unwrap();
         let sp = ((bits + 4 + (arg_count_max * 4) as i32 + 15) / 16) as i32 * 16;
         *m.get_mut() = sp;
-        Caller::Caller((sp, arg_count_max as i32, vec))
+        Caller::Caller((sp, arg_count_max as i32 + vec.len() as i32, vec))
     } else {
         let mut m = now_sp_size.lock().unwrap();
         let sp = ((bits   + (arg_count_max * 4) as i32 + 15) / 16) as i32 * 16;
         *m.get_mut() = sp;
-        Caller::Nocall((sp, arg_count_max as i32, vec))
+        Caller::Nocall((sp, arg_count_max as i32 + vec.len() as i32, vec))
     }
 }
 fn save_and_recover_reg(set: &HashSet<i32>) -> (String, String){

@@ -6,6 +6,7 @@ use std::env::args;
 use std::fs::read_to_string;
 use std::io::{Result, Write};
 use std::fs::File;
+use std::hash::Hash;
 use optim::ControlFlowGraph;
 
 
@@ -74,6 +75,29 @@ fn try_main() -> Result<()> {
         // println!("{:#?}", cfg);
     }
     Ok(())
+}
+
+#[test]
+fn test(){
+    // 读取输入文件
+    let input = read_to_string("/Users/csy/testcases/lv5/6_complex_scopes.c").unwrap();
+
+
+    // 调用 lalrpop 生成的 parser 解析输入文件
+    let ast = sysy::CompUnitParser::new().parse(&input).unwrap();
+    let ir = ast.get_koopa();
+    println!("{}", ir);
+    let driver = koopa::front::Driver::from(ir);
+    let program = driver.generate_program().unwrap();
+    // println!("{:#?}", program.func_layout());
+    let a = program.get_interval();
+    let b = program.get_interval();
+    for (func, map_1) in a{
+        for (func, map_2) in b{
+            println!("{}", map_2 == map_1);
+        }
+    }
+
 }
 
 
