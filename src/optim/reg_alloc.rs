@@ -29,10 +29,10 @@ impl RegAllocator{
     }
     /// if reg is invalid, do nothing
     fn free_reg(&mut self, val: Value){
-        if reg_idx >= 0 && reg_idx <= 12 && !self.reg_pool.contains(&reg_idx){
+        if !self.val_use_reg.contains_key(&val){
             let val = self.val_use_reg.remove(&val).unwrap();
             self.reg_store_val.remove(&val);
-            self.reg_pool.push_back(reg_idx);
+            self.reg_pool.push_back(val);
         }
     }
 }
