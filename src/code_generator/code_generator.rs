@@ -143,7 +143,7 @@ impl RegAlloctor for GlobalRegAlloctor{
                                                              reg_idx) +
                 &format!("\tlw s{}, 0(t{})\n", idx, reg_idx);
             self.free_reg(reg_idx);
-            (StorePos::Stack(format!("s{}", reg_idx)), now)
+            (StorePos::Stack(format!("s{}", idx)), now)
         } else if let None = self.reg_allocation.get(&value).unwrap(){ //这是为了解决第一次存储reg spill的数据
             self.bound_space(value, 4);
             self.get_space(value) // this branch will choose Some(offset)
