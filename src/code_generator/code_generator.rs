@@ -308,7 +308,7 @@ impl GenerateAsm for Program{
             let mut head = "\t.text\n".to_string();
             let mut func_def = "".to_string();
             head += &format!("\t.global {}\n", tmp);
-            func_def += &self.func(func).generate(&g.reg_allocation);
+            func_def += &self.func(func).generate();
             s += &(head + &func_def);
         }
         s
@@ -787,7 +787,7 @@ impl SplitGen for FunctionData {
                 } else{
                     unreachable!()
                 }
-                *s += &(format!("\tmv a{}, t{}\n", i, reg_idx));
+                *s += &(format!("\tmv a{}, {}\n", i, reg_idx));
                 if recover_arg{
                     *s += &g.return_reg(arg_vec[idx]);
                 }
@@ -864,11 +864,17 @@ impl SplitGen for FunctionData {
                     // let offset = r.get_space(val).unwrap();
                     // let (ss, reg) = r.get_offset_reg(offset);
                     let (idx, before) = r.get_space(val);
+                    let mut recover_idx = false;
                     if let StorePos::Stack(reg_name) = idx{
-                        *s += &(format!("\tlw a0, {}\n", reg_name));
+                        *s += &before;
+                        *s += &(format!("\tmv a0, {}\n", reg_name));
+                        recover_idx = true;
                     } else if let StorePos::Reg(reg_name) = idx{
-                        *s += &(before + &(format!("\tlw a0, {}\n", reg_name)) + &r.return_reg
+                        *s += &(before + &(format!("\tmv a0, {}\n", reg_name)) + &r.return_reg
                         (val));
+                    }
+                    if recover_idx{
+                        *s += &r.return_reg(val);
                     }
                     // *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw a0, 0(t{})\n", reg));
                     // r.free_reg(reg);
@@ -1180,13 +1186,13 @@ impl SplitGen for FunctionData {
             }
             if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
                 let tmp = g.alloc_tmp_reg().unwrap();
-                *s += &format!("\tli t{}, {}\n\tmv t{}, {}\n", tmp, i.value(), tmp, dest_reg);
+                *s += &format!("\tli t{}, {}\n\tmv {}, t{}\n", tmp, i.value(), dest_reg, tmp);
                 g.free_reg(tmp);
             } else {
                 //todo 传参数
                 if let ValueKind::FuncArgRef(func_arg_ref) = self.dfg().value(value).kind() {
                     if func_arg_ref.index() < 8 {
-                        *s += &(format!("\tmv a{}, {}\n", func_arg_ref.index(), dest_reg));
+                        *s += &(format!("\tmv {}, a{}\n", dest_reg, func_arg_ref.index()));
                     } else {
                         let mut k = now_sp_size.lock().unwrap();
                         let sp_size = k.get_mut();
@@ -1206,7 +1212,7 @@ impl SplitGen for FunctionData {
                     } else {
                         unreachable!()
                     }
-                    *s += &format!("\tmv {}, {}\n",value_reg, dest_reg);
+                    *s += &format!("\tmv {}, {}\n",dest_reg, value_reg);
                 }
             }
         }
