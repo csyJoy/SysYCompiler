@@ -294,16 +294,19 @@ impl GenerateAsm for Program{
         std::mem::drop(m);
         std::mem::drop(t);
         for &func in self.func_layout(){
-            let mut m = global_reg_allocator.lock().unwrap();
-            let g = m.borrow_mut().get_mut();
-            let alloc = alloc_result.remove(&func).unwrap();
-            g.fresh(alloc);
-            let mut head = "\t.text\n".to_string();
-            let mut func_def = "".to_string();
             let tmp = &self.func(func).name().to_string()[1..];
             if is_lib(tmp){
                 continue;
             }
+            {
+                let mut m = global_reg_allocator.lock().unwrap();
+                let g = m.borrow_mut().get_mut();
+                let alloc = alloc_result.remove(&func).unwrap();
+
+                g.fresh(alloc);
+            }
+            let mut head = "\t.text\n".to_string();
+            let mut func_def = "".to_string();
             head += &format!("\t.global {}\n", tmp);
             func_def += &self.func(func).generate(&g.reg_allocation);
             s += &(head + &func_def);
@@ -430,11 +433,16 @@ fn save_and_recover_reg(set: &HashSet<i32>) -> (String, String){
 trait GenerateAsmFunc{
     fn generate(&self, reg_allocation: &HashMap<Value, Option<i32>>) -> String;
 }
-impl GenerateAsmFunc for FunctionData{
-    fn generate(&self, reg_allocation: &HashMap<Value, Option<i32>>) -> String {
+impl GenerateAsm for FunctionData{
+    fn generate(&self) -> String {
         let mut s = "".to_string();
         s += &format!("{}:\n", &self.name().to_string()[1..]);
-        let caller = calculate_and_allocate_space(self, reg_allocation);
+        let caller;
+        {
+            let mut k = global_reg_allocator.lock().unwrap();
+            let mut m = k.get_mut();
+            caller = calculate_and_allocate_space(self, &m.reg_allocation);
+        }
         let sp_len;
         let save_and_recover;
         if let Caller::Caller((sp, offset, set)) = &caller{

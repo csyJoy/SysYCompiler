@@ -685,7 +685,7 @@ impl Iterator for IntervalHandler{
             let mut tmp = Vec::new();
             let StartQueueInner(val, idx) = self.start.pop().unwrap().0;
             while idx >= self.end.peek().unwrap().0.1{
-                tmp.push(self.end.peek().unwrap().0.0.clone());
+                tmp.push(self.end.pop().unwrap().0.0.clone());
             }
             Some((val, tmp))
         } else {

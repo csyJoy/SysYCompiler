@@ -19,7 +19,7 @@ impl RegAllocator{
         HashMap::with_capacity(12)}
     }
     fn alloc_reg(&mut self, val: Value) -> Option<i32>{
-        if let Some(reg) = self.reg_pool.pop_front(){
+        if let Some(reg) = self.reg_pool.pop_back(){
             self.val_use_reg.insert(val, reg);
             self.reg_store_val.insert(reg, val);
             Some(reg)
@@ -45,16 +45,16 @@ pub fn reg_alloc(all_interval: HashMap<Function, HashMap<Value, Interval>>) -> H
     let mut global_result = HashMap::new();
     for (func, handle) in &mut hanles{
         let mut result = HashMap::new();
-        handle.into_iter().map(|(val, out_of_use)| -> (Value, Option<i32>){
+        let mut dequeue = VecDeque::new();
+        for (value, out_of_use) in handle{
             for val in out_of_use{
                 reg_allocator.free_reg(val);
             }
-            (val, reg_allocator.alloc_reg(val))
-        }).fold(&mut result, |rst, idx|{
-            let (val, reg_idx) = idx;
-            rst.insert(val, reg_idx);
-            rst
-        });
+            dequeue.push_back((value, reg_allocator.alloc_reg(value)));
+        }
+        for (value, reg_idx) in dequeue{
+            result.insert(value, reg_idx);
+        }
         global_result.insert(func.clone(), result);
     }
     global_result
