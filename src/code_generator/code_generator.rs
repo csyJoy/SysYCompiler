@@ -139,9 +139,9 @@ impl RegAlloctor for GlobalRegAlloctor{
         } else if let Some(offset) = self.stack_allocation.get(&value){
             let (load_string, reg_idx) = self.get_offset_reg(*offset);
             let (idx, store_string) = self.borrow_reg(&value);
-            let now = store_string + &load_string + &format!("sub t{}, sp, t{}", reg_idx, reg_idx) +
-                &format!("lw \
-            s{}, 0(t{})", idx, reg_idx);
+            let now = store_string + &load_string + &format!("\tsub t{}, sp, t{}\n", reg_idx,
+                                                             reg_idx) +
+                &format!("\tlw s{}, 0(t{})\n", idx, reg_idx);
             self.free_reg(reg_idx);
             (StorePos::Stack(format!("s{}", reg_idx)), now)
         } else if let None = self.reg_allocation.get(&value).unwrap(){ //这是为了解决第一次存储reg spill的数据
@@ -167,8 +167,9 @@ impl RegAlloctor for GlobalRegAlloctor{
                 self.borrowed_reg.insert(value.clone(), queue);
             }
             let (before, reg_idx) = self.get_offset_reg(*offset);
-            now = before + &format!("sub, t{}, sp, t{}", reg_idx, reg_idx) + &format!("sw s{}, 0\
-        (t{})", borrowed_reg, reg_idx);
+            now = before + &format!("\tsub t{}, sp, t{}\n", reg_idx, reg_idx) + &format!("\tsw \
+            s{}, 0\
+        (t{})\n", borrowed_reg, reg_idx);
             self.free_reg(reg_idx);
         } else {
             unreachable!()
@@ -181,8 +182,9 @@ impl RegAlloctor for GlobalRegAlloctor{
         if let Some(deque) = self.borrowed_reg.get_mut(&value){
             if let Some((reg, offset)) = deque.pop_front(){
                 let (before, reg_idx) = self.get_offset_reg(offset);
-                let now = before + &format!("sub, t{}, sp, t{}", reg_idx, reg_idx) + &format!("lw s{}, 0\
-        (t{})", reg, reg_idx);
+                let now = before + &format!("\tsub t{}, sp, t{}\n", reg_idx, reg_idx) + &format!
+                ("\tlw s{}, 0\
+        (t{})\n", reg, reg_idx);
                 self.free_reg(reg_idx);
                 now
             } else {
@@ -1153,10 +1155,10 @@ impl SplitGen for FunctionData {
             *s += &format!("\tmv {}, {}\n", reg_idx, src_reg_idx);
         }
         if recover_i{
-            g.return_reg(value);
+            *s += &g.return_reg(value);
         }
         if recover_s{
-            g.return_reg(load.src());
+            *s += &g.return_reg(load.src());
         }
         // g.free_reg(reg_idx);
     }
