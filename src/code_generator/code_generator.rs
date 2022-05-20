@@ -107,10 +107,8 @@ impl RegAlloctor for GlobalRegAlloctor{
         }
     }
     fn free_reg(&mut self, idx: i32) -> Option<i32>{
-        for i in &self.tmp_reg_pool {
-            if idx == *i{
-                unreachable!();
-            }
+        if self.tmp_reg_pool.contains(&idx){
+            unreachable!()
         }
         if idx < 0 || idx >= 7 {
             None
@@ -146,7 +144,7 @@ impl RegAlloctor for GlobalRegAlloctor{
             s{}, 0(t{})", idx, reg_idx);
             self.free_reg(reg_idx);
             (StorePos::Stack(format!("s{}", reg_idx)), now)
-        } else if let None = self.reg_allocation.get(&value){ //这是为了解决第一次存储reg spill的数据
+        } else if let None = self.reg_allocation.get(&value).unwrap(){ //这是为了解决第一次存储reg spill的数据
             self.bound_space(value, 4);
             self.get_space(value) // this branch will choose Some(offset)
         } else {
@@ -602,6 +600,8 @@ impl SplitGen for FunctionData {
         let mut src_reg;
         let mut idx_reg;
         let mut ptr_reg;
+        let mut tmp_src_reg = -1;
+        let mut tmp_idx_reg = -1;
         let mut recover_src = false;
         let mut recover_idx = false;
         let mut recover_ptr = false;
@@ -616,7 +616,8 @@ impl SplitGen for FunctionData {
         } else {
             let mut m = global_varable.lock().unwrap();
             let k = m.get_mut(&src).unwrap();
-            src_reg = format!("t{}", g.alloc_tmp_reg().unwrap());
+            tmp_src_reg = g.alloc_tmp_reg().unwrap();
+            src_reg = format!("t{}", tmp_src_reg);
             *s += &format!("\tla {}, {}\n",src_reg, k[1..].to_string());
         }
         if let StorePos::Stack(reg_name) = ptr_reg_pos{
@@ -646,7 +647,8 @@ impl SplitGen for FunctionData {
             }
         }
         if let ValueKind::Integer(i) =  self.dfg().value(idx).kind(){
-            idx_reg = format!("{}", g.alloc_tmp_reg().unwrap());
+            tmp_idx_reg = g.alloc_tmp_reg().unwrap();
+            idx_reg = format!("{}", tmp_idx_reg);
             *s += &format!("\tli t{}, {}\n",idx_reg, i.value());
         } else{
             let (idx_pos, begin_idx) = g.get_space(idx);
@@ -676,12 +678,20 @@ impl SplitGen for FunctionData {
         if recover_idx{
             *s += &g.return_reg(idx);
         }
+        if tmp_src_reg != -1{
+            g.free_reg(tmp_src_reg);
+        }
+        if tmp_idx_reg != -1{
+            g.free_reg(tmp_idx_reg);
+        }
     }
     fn get_elem_ptr_gen(&self, s: &mut String, get_elem_ptr: &GetElemPtr, value: Value){
         let src = get_elem_ptr.src();
         let idx = get_elem_ptr.index();
         let mut idx_reg;
         let mut src_reg;
+        let mut tmp_src_reg = -1;
+        let mut tmp_idx_reg = -1;
         let mut m = global_reg_allocator.lock().unwrap();
         let g = m.get_mut();
         let mut ty_size = 0;
@@ -702,7 +712,8 @@ impl SplitGen for FunctionData {
         }
         let mut recover_idx = false;
         if let ValueKind::Integer(i) =  self.dfg().value(idx).kind(){
-            idx_reg = format!("t{}", g.alloc_tmp_reg().unwrap());
+            tmp_idx_reg = g.alloc_tmp_reg().unwrap();
+            idx_reg = format!("t{}", tmp_idx_reg);
             *s += &format!("\tli {}, {}\n",idx_reg, i.value());
         } else{
             let (idx_pos, begin_idx) = g.get_space(idx);
@@ -717,8 +728,10 @@ impl SplitGen for FunctionData {
             }
             // *s += &format!("\tlw t{}, {}(sp)\n",idx_reg, g.get_space(idx).unwrap());
         }
+        let mut reg_out = -1;
         if let Some(offset) =  g.stack_allocation.get(&src){
             let (ss, reg) = g.get_offset_reg(*offset);
+            reg_out = reg;
             // if let StorePos::Stack(reg_name) = src_pos{
             //     *s += &begin_src;
             //     src_reg = reg_name;
@@ -735,7 +748,8 @@ impl SplitGen for FunctionData {
         } else {
             let mut m = global_varable.lock().unwrap();
             let k = m.get_mut(&src).unwrap();
-            src_reg = format!("t{}", g.alloc_tmp_reg().unwrap());
+            tmp_src_reg = g.alloc_tmp_reg().unwrap();
+            src_reg = format!("t{}", tmp_src_reg);
             *s += &format!("\tla {}, {}\n",src_reg, k[1..].to_string());
         }
         //todo: 没有添加对大的type_size的特殊处理
@@ -756,12 +770,21 @@ impl SplitGen for FunctionData {
             unreachable!()
         }
         *s += &format!("\tadd {}, {}, {}\n",ptr_reg, src_reg, idx_reg);
+        if reg_out != -1{
+            g.free_reg(reg_out);
+        }
         g.bound_space(value, self.dfg().value(value).ty().size() as i32);
         if recover_idx{
             g.return_reg(idx);
         }
         if recover_ptr{
             g.return_reg(value);
+        }
+        if tmp_src_reg != -1{
+            g.free_reg(tmp_src_reg);
+        }
+        if tmp_idx_reg != -1{
+            g.free_reg(tmp_idx_reg);
         }
     }
     //todo: 解决reg的问题
@@ -823,6 +846,7 @@ impl SplitGen for FunctionData {
                 if recover_arg{
                     *s += &g.return_reg(value);
                 }
+                g.free_reg(reg);
             }
             len = len - 1;
             idx = idx + 1;
@@ -897,19 +921,19 @@ impl SplitGen for FunctionData {
         r.store_type_bound(value, StoreType::Value);
         let mut tmp_r:i32 = 0;
         let mut tmp_l:i32 = 0;
-        let mut r_use_x0 = false;
-        let mut l_use_x0 = false;
+        let mut r_is_integer = false;
+        let mut l_is_integer = false;
         let mut recover_r = false;
         let mut recover_l = false;
         let mut recover_i = false;
         if let ValueKind::Integer(i) = self.dfg().value(r_value).kind(){
             if i.value() == 0 {
                 r_s = format!("x0");
-                r_use_x0 = true;
             } else {
                 tmp_r = r.alloc_tmp_reg().unwrap();
                 *s += &format!("\tli t{}, {}\n", tmp_r,i.value());
                 r_s = format!("t{}", tmp_r);
+                r_is_integer = true;
             }
         } else {
             // tmp_r = r.alloc_tmp_reg().unwrap();
@@ -932,11 +956,11 @@ impl SplitGen for FunctionData {
         if let ValueKind::Integer(i) = self.dfg().value(l_value).kind(){
             if i.value() == 0{
                 l_s = format!("x0");
-                l_use_x0 = true;
             } else {
                 tmp_l = r.alloc_tmp_reg().unwrap();
                 *s += &format!("\tli t{}, {}\n", tmp_l, i.value());
                 l_s = format!("t{}", tmp_l);
+                l_is_integer = true;
             }
         } else {
             // tmp_l = r.alloc_tmp_reg().unwrap();
@@ -1054,12 +1078,12 @@ impl SplitGen for FunctionData {
             *s += &r.return_reg(r_value);
         }
 
-        // if !l_use_x0{
-        //     r.free_reg(tmp_l);
-        // }
-        // if !r_use_x0{
-        //     r.free_reg(tmp_r);
-        // }
+        if l_is_integer{
+            r.free_reg(tmp_l);
+        }
+        if r_is_integer{
+            r.free_reg(tmp_r);
+        }
         // let mut offset = 0;
         // offset = r.get_space(value).unwrap();
         // let (ss, reg) = r.get_offset_reg(offset);
