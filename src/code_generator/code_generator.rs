@@ -338,7 +338,7 @@ fn calculate_and_allocate_space(this: &FunctionData, reg_allocator: &HashMap<Val
         if let Some(idx) = opt{
             vec.insert(*idx);
         } else {
-            *sum += 4;
+            *sum += 8;
         }
         (sum, vec)
     });
@@ -775,7 +775,7 @@ impl SplitGen for FunctionData {
         if reg_out != -1{
             g.free_reg(reg_out);
         }
-        g.bound_space(value, self.dfg().value(value).ty().size() as i32);
+        // g.bound_space(value, self.dfg().value(value).ty().size() as i32);
         if recover_idx{
             g.return_reg(idx);
         }
@@ -919,7 +919,6 @@ impl SplitGen for FunctionData {
         let mut g = global_reg_allocator.lock().unwrap();
         let r = g.borrow_mut().get_mut();
         let size = self.dfg().value(value).ty().size() as i32;
-        r.bound_space(value, size);
         r.store_type_bound(value, StoreType::Value);
         let mut tmp_r:i32 = 0;
         let mut tmp_l:i32 = 0;
