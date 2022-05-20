@@ -1242,6 +1242,12 @@ impl SplitGen for FunctionData {
                 }
             }
         }
+        if recover_value{
+            *s += &g.return_reg(value);
+        }
+        if recover_dest{
+            *s += &g.return_reg(dest);
+        }
         // if let Some(offset) = g.get_space(dest){
         //     if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
         //         let (ss, reg)  = g.get_offset_reg(offset);
@@ -1370,7 +1376,7 @@ impl SplitGen for FunctionData {
         let mut k = global_reg_allocator.lock().unwrap();
         let g = k.get_mut();
         let mut reg_idx ;
-        let mut recover_cond = false;;
+        let mut recover_cond = false;
         // if let Some(offset) = g.borrow_mut().get_space(cond){
         //     let (ss, reg) = g.get_offset_reg(offset);
         //     *s +=  &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw t{}, 0(t{})\n",reg_idx, reg));
