@@ -45,7 +45,8 @@ struct GlobalRegAlloctor{
     reg_allocation: HashMap<Value, Option<i32>>,
     store_type: HashMap<Value, StoreType>,
     borrowed_reg: HashMap<Value, VecDeque<(i32, i32)>>,
-    offset: i32
+    offset: i32,
+    start_offset: i32
 }
 impl GlobalRegAlloctor{
     fn new(bottom: i32, top: i32) -> GlobalRegAlloctor{
@@ -54,7 +55,8 @@ impl GlobalRegAlloctor{
             v.push(i);
         }
         GlobalRegAlloctor{ tmp_reg_pool: v, reg_allocation: HashMap::new(), stack_allocation:
-        HashMap::new(), store_type: HashMap::new() ,borrowed_reg: HashMap::new(), offset: 0 }
+        HashMap::new(), store_type: HashMap::new() ,borrowed_reg: HashMap::new(), offset: 0 ,
+            start_offset: 0}
     }
     fn fresh(&mut self, reg_allocation: HashMap<Value, Option<i32>>){
         // self.reg_pool is no need to fresh, because at the end of a function, all reg is free
@@ -62,6 +64,7 @@ impl GlobalRegAlloctor{
         self.stack_allocation.clear();
         self.store_type.clear();
         self.offset = 0;
+        self.start_offset = 0;
     }
 }
 impl RegAlloctor for GlobalRegAlloctor{
@@ -156,23 +159,17 @@ impl RegAlloctor for GlobalRegAlloctor{
     /// the reg idx
     fn borrow_reg(&mut self, value: &Value) -> (i32, String){
         let borrowed_reg = rand::thread_rng().gen_range(0..12);
-        self.bound_space(value.clone(), 4);
-        let now;
-        if let Some(offset) = self.stack_allocation.get(value){
-            if let Some(queue) = self.borrowed_reg.get_mut(value){
-                queue.push_front((borrowed_reg, *offset));
-            } else {
-                let mut queue = VecDeque::new();
-                queue.push_front((borrowed_reg, *offset));
-                self.borrowed_reg.insert(value.clone(), queue);
-            }
-            let (before, reg_idx) = self.get_offset_reg(*offset);
-            now = before + &format!("\tsub t{}, sp, t{}\n", reg_idx, reg_idx) + &format!("\tsw \
-            s{}, 0\
-        (t{})\n", borrowed_reg, reg_idx);
-            self.free_reg(reg_idx);
+        // self.bound_space(value.clone(), 4);
+        let now= format!("\tsw s{}, {}(sp)\n", borrowed_reg, self.start_offset + 4 *
+            borrowed_reg);
+        if let Some(queue) = self.borrowed_reg.get_mut(value){
+            queue.push_front((borrowed_reg, self.start_offset + 4 *
+                borrowed_reg));
         } else {
-            unreachable!()
+            let mut queue = VecDeque::new();
+            queue.push_front((borrowed_reg, self.start_offset + 4 *
+                borrowed_reg));
+            self.borrowed_reg.insert(value.clone(), queue);
         }
         (borrowed_reg, now)
     }
@@ -181,11 +178,11 @@ impl RegAlloctor for GlobalRegAlloctor{
     fn return_reg(&mut self, value: Value) -> String{
         if let Some(deque) = self.borrowed_reg.get_mut(&value){
             if let Some((reg, offset)) = deque.pop_front(){
-                let (before, reg_idx) = self.get_offset_reg(offset);
-                let now = before + &format!("\tsub t{}, sp, t{}\n", reg_idx, reg_idx) + &format!
-                ("\tlw s{}, 0\
-        (t{})\n", reg, reg_idx);
-                self.free_reg(reg_idx);
+                let store_offset = self.stack_allocation.get(&value).unwrap();
+                let (store_before, store_idx) = self.get_offset_reg(*store_offset);
+                let now = store_before + &format!("\tsub t{}, sp, t{}\n\tsw s{}, 0(t{})\n",
+                                                  store_idx, store_idx, reg, store_idx) + &format!("\tlw s{}, {}(sp)\n", reg, offset);
+                self.free_reg(store_idx);
                 now
             } else {
                 unreachable!()
@@ -338,8 +335,7 @@ fn calculate_and_allocate_space(this: &FunctionData, reg_allocator: &HashMap<Val
         if let Some(idx) = opt{
             vec.insert(*idx);
         } else {
-            *sum += 4;
-            *sum += 4 * this.dfg().value(val.clone()).used_by().len() as i32;
+            *sum += 8;
         }
         (sum, vec)
     });
@@ -415,7 +411,7 @@ fn calculate_and_allocate_space(this: &FunctionData, reg_allocator: &HashMap<Val
         Caller::Caller((sp, arg_count_max as i32 + vec.len() as i32, vec))
     } else {
         let mut m = now_sp_size.lock().unwrap();
-        let sp = ((bits   + (arg_count_max * 4) as i32 + 15) / 16) as i32 * 16;
+        let sp = ((bits + (arg_count_max * 4) as i32 + 15) / 16) as i32 * 16;
         *m.get_mut() = sp;
         Caller::Nocall((sp, arg_count_max as i32 + vec.len() as i32, vec))
     }
@@ -457,7 +453,8 @@ impl GenerateAsm for FunctionData{
             let (ss, reg) = m.get_offset_reg(sp - 4);
             s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg) +&format!("\tsw ra, 0(t{})\n", reg));
             m.free_reg(reg);
-            m.offset = offset * 4;
+            m.offset = offset * 4 + set.len() as i32 * 4;
+            m.start_offset = offset * 4;
             // m.free_reg(mid_reg);
         } else if let Caller::Nocall((sp, offset, set)) = &caller{
             save_and_recover = save_and_recover_reg(set);
@@ -467,7 +464,8 @@ impl GenerateAsm for FunctionData{
             let (ss, reg) = m.get_offset_reg(*sp);
             s += &(ss + &format!("\tsub sp, sp, t{}\n", reg));
             m.free_reg(reg);
-            m.offset = offset * 4;
+            m.offset = offset * 4 + set.len() as i32 * 4;
+            m.start_offset = offset * 4;
         } else {
             unreachable!()
         }
@@ -1117,7 +1115,7 @@ impl SplitGen for FunctionData {
         } else {
             unreachable!()
         }
-        let (src_reg, src_before) = g.get_space(load.src());
+        let (src_reg, src_before) = g.get_space(src_value);
         if let StorePos::Reg(reg_name) = src_reg{
             src_reg_idx = reg_name;
         } else if let StorePos::Stack(reg_name) = src_reg{
@@ -1168,8 +1166,8 @@ impl SplitGen for FunctionData {
         let var = global_varable.lock().unwrap();
         let mut m = global_reg_allocator.lock().unwrap();
         let g = m.get_mut();
-        let mut value_reg;
-        let mut dest_reg;
+        let mut value_reg= "".to_string();
+        let mut dest_reg = "".to_string();
         let mut recover_value = false;
         let mut recover_dest = false;
         if let Some(name) = var.get(&dest){
@@ -1203,10 +1201,10 @@ impl SplitGen for FunctionData {
         } else if let (dest_reg_pos, dest_before) = g.get_space(dest){
             if let StorePos::Stack(reg_name) = dest_reg_pos{
                 dest_reg = reg_name;
-            } else if let StorePos::Reg(reg_name) = dest_reg_pos{
-                dest_reg = reg_name;
                 *s += &dest_before;
                 recover_dest = true;
+            } else if let StorePos::Reg(reg_name) = dest_reg_pos{
+                dest_reg = reg_name;
             } else {
                 unreachable!()
             }
