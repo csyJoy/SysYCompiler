@@ -1389,9 +1389,9 @@ impl SplitGen for FunctionData {
             if let StorePos::Stack(reg_name) = reg{
                 reg_idx = reg_name;
                 recover_cond = true;
+                *s += &before;
             } else if let StorePos::Reg(reg_name) = reg{
                 reg_idx = reg_name;
-                *s += &before;
             } else {
                 unreachable!()
             }
