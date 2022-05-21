@@ -1,10 +1,11 @@
+use std::any::Any;
 use std::borrow::BorrowMut;
 use std::cell::{Cell, Ref};
 use std::cmp::{Ordering, Reverse};
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
-use koopa::ir::{BasicBlock, Function, FunctionData, Program, TypeKind, Value};
+use koopa::ir::{BasicBlock, Function, FunctionData, Program, Type, TypeKind, Value};
 use koopa::ir::entities::ValueData;
 use koopa::ir::ValueKind;
 use priority_queue::PriorityQueue;
@@ -586,7 +587,12 @@ impl ActiveAnalysis for Program{
                                     use_value.insert(arg.clone());
                                 }
                             }
-                            define_value.insert(inst.clone());
+                            if let a = func_data.dfg().value(inst
+                                .clone()).ty(){
+                                if(a.eq(&Type::get_i32())){
+                                    define_value.insert(inst.clone());
+                                }
+                            }
                         }
                         ValueKind::GetElemPtr(get_elem_ptr) => {
                             define_value.insert(inst.clone());
@@ -899,7 +905,30 @@ impl IntervalAnalysis for Program{
                                     func_interval.get_mut(&branch.cond()).unwrap().insert(&bb, cnt);
                                 }
                                 ValueKind::Jump(jump) => {}
-                                ValueKind::Call(call) => {}
+                                ValueKind::Call(call) => {
+                                    if let a = func_data.dfg().value(*inst.clone()).ty(){
+                                        if a.eq(&Type::get_i32()){
+                                            if !func_interval.contains_key(inst){
+                                                let mut interval = Interval::new();
+                                                interval.new_margin(bb.clone(), begin, end);
+                                                func_interval.insert(*inst.clone(), interval);
+                                                func_interval.get_mut(&inst).unwrap().new_margin(bb, begin,
+                                                                                                 end);
+                                                func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
+                                            }
+                                        }
+                                        for arg in call.args(){
+                                            if !func_interval.contains_key(arg){
+                                                let mut interval = Interval::new();
+                                                interval.new_margin(bb.clone(), begin, end);
+                                                func_interval.insert(arg.clone(), interval);
+                                            }
+                                            func_interval.get_mut(arg).unwrap().new_margin(bb,
+                                                                                                           begin, end);
+                                            func_interval.get_mut(arg).unwrap().insert(&bb, cnt);
+                                        }
+                                    }
+                                }
                                 ValueKind::GetElemPtr(get_elem_ptr) => {
                                     if !func_interval.contains_key(inst){
                                         let mut interval = Interval::new();
