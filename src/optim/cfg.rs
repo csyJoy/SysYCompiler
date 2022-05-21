@@ -738,19 +738,27 @@ impl Interval{
             self.interval.push_front((*left, now));
         }
     }
+    //now strategy: ignore the internal blank
     fn merge_interval(&mut self){
         let mut tmp = VecDeque::new();
         let mut merged: (i32, i32) = (0, 0);
-        for interval in &self.interval{
-            if merged.1 != interval.0{
-                if merged != (0, 0){
-                    tmp.push_back(merged.clone());
-                }
-                merged = interval.clone();
-            } else {
-                merged.1 = interval.1;
-            }
+        let first = self.interval.pop_front().unwrap();
+        merged.0 = first.0;
+        if let Some(last) = self.interval.pop_back(){
+            merged.1 = last.1;
+        } else {
+            merged.1 = first.1;
         }
+        // for interval in &self.interval{
+        //     if merged.1 != interval.0{
+        //         if merged != (0, 0){
+        //             tmp.push_back(merged.clone());
+        //         }
+        //         merged = interval.clone();
+        //     } else {
+        //         merged.1 = interval.1;
+        //     }
+        // }
         tmp.push_back(merged);
         self.interval = tmp;
     }
