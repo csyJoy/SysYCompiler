@@ -876,7 +876,7 @@ impl SplitGen for FunctionData {
                 unreachable!()
             }
             g.store_type_bound(value, StoreType::Value);
-            *s += &(format!("\tsw a0, 0({})\n", reg));
+            *s += &(format!("\tmv {}, a0\n", reg));
             if recover_rst{
                 *s += &g.return_reg(value);
             }
@@ -1135,7 +1135,7 @@ impl SplitGen for FunctionData {
         //     let (src_ss, src_reg) = g.get_offset_reg(src_offset);
         //     let (ss, reg) = g.get_offset_reg(offset);
         //     if let StoreType::Point = g.store_type.get(&src_value).unwrap(){
-        //         *s += &(src_ss + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg) + &(format!("\tlw t{}, 0(t{})\n",src_reg, src_reg) +&format!("\tlw t{}, 0(t{})\n", src_reg, src_reg) + &ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tsw t{}, 0(t{})\n",
+        //         *s += &(src_ss + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg) + &(format!("\tlw t{}, 0(t{})\n",src_reg, src_reg) +&format!("\tlw t{}, 0(t{})\n", src_reg, src_reg) + &ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\t&get_elem_ptr.src(osw t{}, 0(t{})\n",
         //                                                                                                                                                                                                   src_reg, reg)));
         //     } else {
         //         *s += &(src_ss + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg)+ &(format!("\tlw t{}, 0(t{})\n",src_reg, src_reg)  + &ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tsw t{}, 0(t{})\n",
