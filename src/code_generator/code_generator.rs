@@ -19,6 +19,10 @@ use crate::optim::reg_alloc::RegAlloc;
 pub trait GenerateAsm{
     fn generate(&self) -> String;
 }
+pub enum RegType{
+    T(i32),
+    S(i32)
+}
 // todo 这里的allocator不是allocator，他只是一个item，之后可以在外面套一个真正的global allocator
 pub trait RegAlloctor{
     fn store_type_bound(&mut self, value: Value, store_type: StoreType);
@@ -28,7 +32,7 @@ pub trait RegAlloctor{
     fn bound_space(&mut self, value: Value, size: i32);
     fn get_space(&mut self, value: Value) -> (StorePos, String);
     fn return_reg(&mut self, value: Value) -> String;
-    fn borrow_reg(&mut self, value: &Value) -> (i32, String);
+    fn borrow_reg(&mut self, value: &Value) -> (String, String);
 }
 pub enum StoreType{
     Value, // single value or one dimension array
@@ -44,7 +48,7 @@ struct GlobalRegAlloctor{
     stack_allocation: HashMap<Value, i32>,
     reg_allocation: HashMap<Value, Option<i32>>,
     store_type: HashMap<Value, StoreType>,
-    borrowed_reg: HashMap<Value, VecDeque<(i32, i32)>>,
+    borrowed_reg: HashMap<Value, VecDeque<(RegType, i32)>>,
     have_borrowed: VecDeque<i32>,
     offset: i32,
     start_offset: i32
@@ -149,9 +153,9 @@ impl RegAlloctor for GlobalRegAlloctor{
             let (idx, store_string) = self.borrow_reg(&value);
             let now = store_string + &load_string + &format!("\tadd t{}, sp, t{}\n", reg_idx,
                                                              reg_idx) +
-                &format!("\tlw s{}, 0(t{})\n", idx, reg_idx);
+                &format!("\tlw {}, 0(t{})\n", idx, reg_idx);
             self.free_reg(reg_idx);
-            (StorePos::Stack(format!("s{}", idx)), now)
+            (StorePos::Stack(format!("{}", idx)), now)
         } else if let None = self.reg_allocation.get(&value).unwrap(){ //这是为了解决第一次存储reg spill的数据
             self.bound_space(value, 4);
             self.get_space(value) // this branch will choose Some(offset)
@@ -163,40 +167,62 @@ impl RegAlloctor for GlobalRegAlloctor{
     }
     /// before borrow reg, make sure before value is stored correctly, return the store code, and
     /// the reg idx
-    fn borrow_reg(&mut self, value: &Value) -> (i32, String){
-        let borrowed_reg = self.have_borrowed.pop_front().unwrap();
-        // self.bound_space(value.clone(), 4);
-        let now= format!("\tsw s{}, {}(sp)\n", borrowed_reg, self.start_offset + 4 *
-            borrowed_reg);
+    fn borrow_reg(&mut self, value: &Value) -> (String, String){
+        let idx = self.alloc_tmp_reg().unwrap();
+        let borrowed_reg = format!("t{}", idx);
+        let now = "".to_string();
         if let Some(queue) = self.borrowed_reg.get_mut(value){
-            queue.push_front((borrowed_reg, self.start_offset + 4 *
-                borrowed_reg));
+            queue.push_front((RegType::T(idx), 0));
         } else {
             let mut queue = VecDeque::new();
-            queue.push_front((borrowed_reg, self.start_offset + 4 *
-                borrowed_reg));
+            queue.push_front((RegType::T(idx), 0));
             self.borrowed_reg.insert(value.clone(), queue);
         }
+        //let borrowed_reg = self.have_borrowed.pop_front().unwrap();
+        // self.bound_space(value.clone(), 4);
+        // let now= format!("\tsw s{}, {}(sp)\n", borrowed_reg, self.start_offset + 4 *
+        //     borrowed_reg);
+        // if let Some(queue) = self.borrowed_reg.get_mut(value){
+        //     queue.push_front((borrowed_reg, self.start_offset + 4 *
+        //         borrowed_reg));
+        // } else {
+        //     let mut queue = VecDeque::new();
+        //     queue.push_front((borrowed_reg, self.start_offset + 4 *
+        //         borrowed_reg));
+        //     self.borrowed_reg.insert(value.clone(), queue);
+        // }
         (borrowed_reg, now)
     }
     /// after return reg, make sure last stored reg value is wrote back to reg, return the load code
     /// if the value doesn't borrow reg, do nothing
     fn return_reg(&mut self, value: Value) -> String{
+        // self.free_reg()
         if let Some(deque) = self.borrowed_reg.get_mut(&value){
-            if let Some((reg, offset)) = deque.pop_front(){
-                let store_offset = self.stack_allocation.get(&value).unwrap();
-                let (store_before, store_idx) = self.get_offset_reg(*store_offset);
-                let now = store_before + &format!("\tadd t{}, sp, t{}\n\tsw s{}, 0(t{})\n",
-                                                  store_idx, store_idx, reg, store_idx) + &format!("\tlw s{}, {}(sp)\n", reg, offset);
-                self.free_reg(store_idx);
-                self.have_borrowed.push_back(reg);
-                now
+            if let Some((RegType::T(idx), offset)) = deque.pop_front(){
+                self.free_reg(idx);
+                "".to_string()
             } else {
                 unreachable!()
             }
         } else {
+            //todo: 为什么这里要""?
             "".to_string()
         }
+        // if let Some(deque) = self.borrowed_reg.get_mut(&value){
+        //     if let Some((reg, offset)) = deque.pop_front(){
+        //         let store_offset = self.stack_allocation.get(&value).unwrap();
+        //         let (store_before, store_idx) = self.get_offset_reg(*store_offset);
+        //         let now = store_before + &format!("\tadd t{}, sp, t{}\n\tsw s{}, 0(t{})\n",
+        //                                           store_idx, store_idx, reg, store_idx) + &format!("\tlw s{}, {}(sp)\n", reg, offset);
+        //         self.free_reg(store_idx);
+        //         self.have_borrowed.push_back(reg);
+        //         now
+        //     } else {
+        //         unreachable!()
+        //     }
+        // } else {
+        //     "".to_string()
+        // }
     }
 }
 lazy_static!{
