@@ -914,7 +914,8 @@ impl IntervalAnalysis for Program{
                                     func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
                                 }
                                 ValueKind::Store(store) => {
-                                    if !check_int(func_data, &store.value()){
+                                    if !check_int(func_data, &store.value()) && !check_func_args
+                                        (func_data, &store.value()){
                                         if !func_interval.contains_key(&store.value()){
                                             let mut interval = Interval::new();
                                             interval.new_margin(bb.clone(), begin, end);
