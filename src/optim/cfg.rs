@@ -229,6 +229,55 @@ impl ControlFlowGraph {
             name: "".to_string(),
         }
     }
+
+    fn flatten_back<'a>(&self, now_cfg_inner: &CfgInner, queue: &'a mut VecDeque<BasicBlock>,
+                       visited:
+    &mut HashMap<BBType, bool>){
+        if(visited.is_empty()){
+            visited.insert(BBType::Enter, false);
+            visited.insert(BBType::Exit, false);
+            let mut queue = VecDeque::new();
+            for s in &now_cfg_inner.father{
+                if let Some(bb) = s{
+                    if !visited.contains_key(&BBType::Other(bb.clone())){
+                        queue.push_back(bb.clone());
+                    }
+                }
+            }
+            while !queue.is_empty(){
+                let now = queue.pop_front().unwrap();
+                if !visited.contains_key(&BBType::Other(now.clone())){
+                    visited.insert(BBType::Other(now.clone()), false);
+                }
+                for s in &self.other.get(&now).unwrap().father{
+                    if let Some(bb) = s{
+                        if !visited.contains_key(&BBType::Other(bb.clone())){
+                            queue.push_back(bb.clone());
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(bb) = &now_cfg_inner.code{
+            *visited.get_mut(&BBType::Other(bb.clone())).unwrap() = true;
+        } else {
+            if now_cfg_inner.father.is_empty(){
+                *visited.get_mut(&BBType::Exit).unwrap() = true;
+            } else {
+                *visited.get_mut(&BBType::Enter).unwrap() = true;
+            }
+        }
+        for s in &now_cfg_inner.father{
+            if let Some(bb) = s{
+                if !(*visited.get(&BBType::Other(bb.clone())).unwrap()){
+                    self.flatten_back(self.other.get(bb).unwrap(), queue, visited);
+                }
+            }
+        }
+        if let Some(bb) = now_cfg_inner.code{
+            queue.push_front(bb.clone());
+        }
+    }
     fn flatten<'a>(&self, now_cfg_inner: &CfgInner, queue: &'a mut VecDeque<BasicBlock>, visited:
     &mut HashMap<BBType, bool>){
         if(visited.is_empty()){
@@ -303,26 +352,28 @@ fn get_in<'a>(out: &'a mut HashSet<Value>, define_value: &HashSet<Value>, use_va
     let mut changed = false;
     let mut define_set:HashSet<Value> = HashSet::new();
     let mut use_set:HashSet<Value> = HashSet::new();
+    println!("define set len: {}", define_value.len());
+    println!("use set len: {}", use_value.len());
     for val in define_value{
         let result = out.remove(val);
-        if result {
-            define_set.insert(val.clone());
-        }
+        // if result {
+        //     define_set.insert(val.clone());
+        // }
     }
     for val in use_value{
         let result = out.insert(val.clone());
-        if result {
-            use_set.insert(val.clone());
-        }
+        // if result {
+        //     use_set.insert(val.clone());
+        // }
     }
-    let tmp1 = use_set.difference(&define_set);
-    let tmp2 = define_set.difference(&use_set);
-    let tmp1 = tmp1.collect::<HashSet<&Value>>();
-    let tmp2 = tmp2.collect::<HashSet<&Value>>();
-    if !tmp1.is_empty() || !tmp2.is_empty(){
-        changed = true;
-    }
-    (out, changed)
+    // let tmp1 = use_set.difference(&define_set);
+    // let tmp2 = define_set.difference(&use_set);
+    // let tmp1 = tmp1.collect::<HashSet<&Value>>();
+    // let tmp2 = tmp2.collect::<HashSet<&Value>>();
+    // if !tmp1.is_empty() || !tmp2.is_empty(){
+    //     changed = true;
+    // }
+    (out, false)
 }
 /// this function merge all the son's In[B] and get self Out[B]
 fn merge_in(in_vec: &Vec<HashSet<Value>>) -> HashSet<Value>{
@@ -353,17 +404,51 @@ fn get_in_and_out(cfg: &ControlFlowGraph, define_and_use: &HashMap<BasicBlock, (
     }
     let mut in_changed = true;
     let mut count = 0;
+    let mut flatten = VecDeque::new();
+    let mut visited = HashMap::new();
+    cfg.flatten_back(&cfg.exit, &mut flatten, &mut visited);
     while in_changed{
         in_changed = false;
         count += 1;
-        let now = &cfg.exit;
-        let mut global_vec: Vec<BasicBlock> = Vec::new();
-        for fa in &now.father{
-            if let Some(bb) = fa{
-                global_vec.push(bb.clone());
+        for i in 0..flatten.len(){
+            let now_bb = flatten.get(i).unwrap();
+            let now_bb_data = func_data.dfg().bbs().get(&now_bb).unwrap();
+            if let Some(name) = now_bb_data.name(){
+                println!("{}", name);
             }
+            let now_cfg = cfg.other.get(&now_bb).unwrap();
+            let mut vec: Vec<HashSet<Value>> = Vec::new();
+            for son in &now_cfg.son{
+                if let Some(son) = son{
+                    let t = bb_in.get(&BBType::Other(son.clone())).unwrap().clone();
+                    vec.push(t);
+                }
+            }
+            let mut b_out =  merge_in(&vec);
+            if let Some(pre_out) = bb_out.get(&BBType::Other(now_bb.clone())){
+                let col1 = b_out.difference(&pre_out).collect::<HashSet<&Value>>();
+                let col2 = pre_out.difference(&b_out).collect::<HashSet<&Value>>();
+                if col1.is_empty() && col2.is_empty(){
+                    continue;
+                }
+            } else {
+                in_changed = true;
+            }
+            bb_out.remove(&BBType::Other(now_bb.clone()));
+            bb_out.insert(BBType::Other(now_bb.clone()), b_out.clone());
+            let (define_value, use_value) = define_and_use.get(&now_bb).unwrap();
+            let (b_in, result) = get_in(&mut b_out, define_value, use_value);
+            bb_in.remove(&BBType::Other(now_bb.clone()));
+            bb_in.insert(BBType::Other(now_bb.clone()), b_in.clone());
         }
-        let mut visited: HashMap<BasicBlock, bool> = HashMap::new();
+        // let now = &cfg.exit;
+        // let mut global_vec: Vec<BasicBlock> = Vec::new();
+        // for fa in &now.father{
+        //     if let Some(bb) = fa{
+        //         global_vec.push(bb.clone());
+        //     }
+        // }
+        // let mut visited: HashMap<BasicBlock, bool> = HashMap::new();
         // println!("====================iter{}===========================", count);
         // for (bb, set) in bb_in.iter(){
         //     let mut s: String = "".to_string();
@@ -391,46 +476,46 @@ fn get_in_and_out(cfg: &ControlFlowGraph, define_and_use: &HashMap<BasicBlock, (
         //         println!("exit: {}", s);
         //     }
         // }
-        while !global_vec.is_empty(){
-            let now_bb = global_vec.remove(0);
-            visited.insert(now_bb.clone(),true);
-            let now_bb_data = func_data.dfg().bbs().get(&now_bb).unwrap();
-            if let Some(name) = now_bb_data.name(){
-                println!("{}", name);
-            }
-            let now_cfg = cfg.other.get(&now_bb).unwrap();
-            let mut vec: Vec<HashSet<Value>> = Vec::new();
-            for son in &now_cfg.son{
-                if let Some(son) = son{
-                    let t = bb_in.get(&BBType::Other(son.clone())).unwrap().clone();
-                    vec.push(t);
-                }
-            }
-            let mut b_out =  merge_in(&vec);
-            if let Some(pre_out) = bb_out.get(&BBType::Other(now_bb)){
-                let col1 = b_out.difference(&pre_out).collect::<HashSet<&Value>>();
-                let col2 = pre_out.difference(&b_out).collect::<HashSet<&Value>>();
-                if col1.is_empty() && col2.is_empty(){
-                    continue;
-                }
-            }
-            bb_out.remove(&BBType::Other(now_bb.clone()));
-            bb_out.insert(BBType::Other(now_bb.clone()), b_out.clone());
-            let (define_value, use_value) = define_and_use.get(&now_bb).unwrap();
-            let (b_in, result) = get_in(&mut b_out, define_value, use_value);
-            bb_in.remove(&BBType::Other(now_bb.clone()));
-            bb_in.insert(BBType::Other(now_bb.clone()), b_in.clone());
-            for fa in &now_cfg.father{
-                if let Some(fa) = fa{
-                    if let None = visited.get(fa){
-                        global_vec.push(fa.clone());
-                    }
-                }
-            }
-            if result{
-                in_changed = true;
-            }
-        }
+        // while !global_vec.is_empty(){
+        //     let now_bb = global_vec.remove(0);
+        //     visited.insert(now_bb.clone(),true);
+        //     let now_bb_data = func_data.dfg().bbs().get(&now_bb).unwrap();
+        //     if let Some(name) = now_bb_data.name(){
+        //         println!("{}", name);
+        //     }
+        //     let now_cfg = cfg.other.get(&now_bb).unwrap();
+        //     let mut vec: Vec<HashSet<Value>> = Vec::new();
+        //     for son in &now_cfg.son{
+        //         if let Some(son) = son{
+        //             let t = bb_in.get(&BBType::Other(son.clone())).unwrap().clone();
+        //             vec.push(t);
+        //         }
+        //     }
+        //     let mut b_out =  merge_in(&vec);
+        //     if let Some(pre_out) = bb_out.get(&BBType::Other(now_bb)){
+        //         let col1 = b_out.difference(&pre_out).collect::<HashSet<&Value>>();
+        //         let col2 = pre_out.difference(&b_out).collect::<HashSet<&Value>>();
+        //         if col1.is_empty() && col2.is_empty(){
+        //             continue;
+        //         }
+        //     }
+        //     bb_out.remove(&BBType::Other(now_bb.clone()));
+        //     bb_out.insert(BBType::Other(now_bb.clone()), b_out.clone());
+        //     let (define_value, use_value) = define_and_use.get(&now_bb).unwrap();
+        //     let (b_in, result) = get_in(&mut b_out, define_value, use_value);
+        //     bb_in.remove(&BBType::Other(now_bb.clone()));
+        //     bb_in.insert(BBType::Other(now_bb.clone()), b_in.clone());
+        //     for fa in &now_cfg.father{
+        //         if let Some(fa) = fa{
+        //             if let None = visited.get(fa){
+        //                 global_vec.push(fa.clone());
+        //             }
+        //         }
+        //     }
+        //     if result{
+        //         in_changed = true;
+        //     }
+        // }
         // while !global_vec.is_empty() {
         //     let mut now = global_vec.get(0).unwrap();
         //     global_vec.remove(0);
@@ -526,6 +611,14 @@ fn check_global(map: &Ref<HashMap<Value, ValueData>>, val: &Value) -> bool{
         return false;
     }
 }
+fn check_used(func_data: &FunctionData, val: &Value) -> bool{
+    let dfg = func_data.dfg();
+    return if dfg.value(val.clone()).used_by().is_empty() {
+        false
+    } else {
+        true
+    }
+}
 
 impl ActiveAnalysis for Program{
     fn active_analysis(&self) -> (HashMap<Function, ActiveVar>, HashMap<Function, ControlFlowGraph>) {
@@ -595,10 +688,10 @@ impl ActiveAnalysis for Program{
                         ValueKind::Load(load) => {
                             if !define_value.contains(&load.src()) && !check_global(&global_val,
                                                                                     &load.src())
-                                && !check_int(func_data, &load
-                                .src()){
+                                && !check_int(func_data, &load.src()){
                                 use_value.insert(load.src());
                             }
+                            println!("in load:{:#?}", inst);
                             define_value.insert(inst.clone());
                         }
                         ValueKind::Alloc(alloc) =>{
@@ -629,7 +722,7 @@ impl ActiveAnalysis for Program{
                             }
                             if let a = func_data.dfg().value(inst
                                 .clone()).ty(){
-                                if(a.eq(&Type::get_i32())){
+                                if a.eq(&Type::get_i32()) && check_used(func_data, inst){
                                     define_value.insert(inst.clone());
                                 }
                             }
@@ -797,15 +890,23 @@ impl Interval{
         }
     }
     //now strategy: ignore the internal blank
-    fn merge_interval(&mut self){
+    fn merge_interval(&mut self, val: &Value, func_data: &FunctionData){
         let mut tmp = VecDeque::new();
         let mut merged: (i32, i32) = (0, 0);
-        let first = self.interval.pop_front().unwrap();
-        merged.0 = first.0;
-        if let Some(last) = self.interval.pop_back(){
-            merged.1 = last.1;
+        if let Some(first) = self.interval.pop_front(){
+            merged.0 = first.0;
+            if let Some(last) = self.interval.pop_back(){
+                merged.1 = last.1;
+            } else {
+                merged.1 = first.1;
+            }
+            tmp.push_back(merged);
+            self.interval = tmp;
         } else {
-            merged.1 = first.1;
+            if let ValueKind::Load(load) = func_data.dfg().value(val.clone()).kind(){
+                println!("{:#?}", func_data.dfg().value(load.src()));
+            }
+            unreachable!();
         }
         // for interval in &self.interval{
         //     if merged.1 != interval.0{
@@ -817,8 +918,6 @@ impl Interval{
         //         merged.1 = interval.1;
         //     }
         // }
-        tmp.push_back(merged);
-        self.interval = tmp;
     }
 }
 pub trait IntervalAnalysis{
@@ -829,6 +928,7 @@ impl IntervalAnalysis for Program{
     fn get_interval(&self) -> HashMap<Function, HashMap<Value, Interval>> {
         let mut all_interval = HashMap::new();
         let (act, cfg) = self.active_analysis();
+        let global_var = self.borrow_values();
         for (func, cfg) in cfg.iter(){
             if !cfg.other.is_empty(){
                 let mut flatten = VecDeque::new();
@@ -850,7 +950,7 @@ impl IntervalAnalysis for Program{
                         let begin  = cnt - bbn.insts().len() as i32;
                         if let Some(out_var) = act.out_var.get(&BBType::Other(bb)){
                             for elem in out_var {
-                                if !check_int(func_data, elem){
+                                if !check_int(func_data, elem) && !check_global(&global_var, &elem){
                                     if !func_interval.contains_key(elem){
                                         let mut interval = Interval::new();
                                         interval.new_margin(bb.clone(), begin, cnt);
@@ -928,31 +1028,37 @@ impl IntervalAnalysis for Program{
                                         (bb, begin, end);
                                         func_interval.get_mut(&store.value()).unwrap().insert(&bb, cnt);
                                     }
-                                    if !func_interval.contains_key(&store.dest()){
-                                        let mut interval = Interval::new();
-                                        interval.new_margin(bb.clone(), begin, end);
-                                        func_interval.insert(store.dest().clone(), interval);
+                                    if !check_global(&global_var, &store.dest()){
+                                        if !func_interval.contains_key(&store.dest()){
+                                            let mut interval = Interval::new();
+                                            interval.new_margin(bb.clone(), begin, end);
+                                            func_interval.insert(store.dest().clone(), interval);
+                                        }
+                                        func_interval.get_mut(&store.dest()).unwrap().new_margin(bb, begin, end);
+                                        func_interval.get_mut(&store.dest()).unwrap().cut(&bb, cnt);
                                     }
-                                    func_interval.get_mut(&store.dest()).unwrap().new_margin(bb, begin, end);
-                                    func_interval.get_mut(&store.dest()).unwrap().cut(&bb, cnt);
                                 }
                                 ValueKind::Load(load) => {
-                                    if !func_interval.contains_key(inst){
-                                        let mut interval = Interval::new();
-                                        interval.new_margin(bb.clone(), begin, end);
-                                        func_interval.insert(*inst.clone(), interval);
+                                    if check_used(func_data, inst){
+                                        if !func_interval.contains_key(inst){
+                                            let mut interval = Interval::new();
+                                            interval.new_margin(bb.clone(), begin, end);
+                                            func_interval.insert(*inst.clone(), interval);
+                                        }
+                                        func_interval.get_mut(&inst).unwrap().new_margin(bb, begin,
+                                                                                         end);
+                                        func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
                                     }
-                                    func_interval.get_mut(&inst).unwrap().new_margin(bb, begin,
-                                                                                     end);
-                                    func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
-                                    if !func_interval.contains_key(&load.src()){
-                                        let mut interval = Interval::new();
-                                        interval.new_margin(bb.clone(), begin, end);
-                                        func_interval.insert(load.src().clone(), interval);
+                                    if !check_global(&global_var, &load.src()){
+                                        if !func_interval.contains_key(&load.src()){
+                                            let mut interval = Interval::new();
+                                            interval.new_margin(bb.clone(), begin, end);
+                                            func_interval.insert(load.src().clone(), interval);
+                                        }
+                                        func_interval.get_mut(&load.src()).unwrap().new_margin(bb,
+                                                                                               begin, end);
+                                        func_interval.get_mut(&load.src()).unwrap().insert(&bb, cnt);
                                     }
-                                    func_interval.get_mut(&load.src()).unwrap().new_margin(bb,
-                                                                                           begin, end);
-                                    func_interval.get_mut(&load.src()).unwrap().insert(&bb, cnt);
                                 }
                                 ValueKind::Alloc(alloc) => {
                                     if !func_interval.contains_key(inst){
@@ -979,15 +1085,15 @@ impl IntervalAnalysis for Program{
                                 ValueKind::Jump(jump) => {}
                                 ValueKind::Call(call) => {
                                     if let a = func_data.dfg().value(*inst.clone()).ty(){
-                                        if a.eq(&Type::get_i32()){
+                                        if a.eq(&Type::get_i32()) && check_used(func_data, inst){
                                             if !func_interval.contains_key(inst){
                                                 let mut interval = Interval::new();
                                                 interval.new_margin(bb.clone(), begin, end);
                                                 func_interval.insert(*inst.clone(), interval);
-                                                func_interval.get_mut(&inst).unwrap().new_margin(bb, begin,
-                                                                                                 end);
-                                                func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
                                             }
+                                            func_interval.get_mut(&inst).unwrap().new_margin(bb, begin,
+                                                                                             end);
+                                            func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
                                         }
                                         for arg in call.args(){
                                             if !check_int(func_data, arg){
@@ -1080,9 +1186,9 @@ impl IntervalAnalysis for Program{
                 all_interval.insert(func.clone(), func_interval);
             }
         }
-        for (_, interval) in &mut all_interval {
-            for (_, interval_1) in interval{
-                interval_1.merge_interval();
+        for (func, interval) in &mut all_interval {
+            for (val, interval_1) in interval{
+                interval_1.merge_interval(val, self.func(func.clone()));
             }
         }
         // self.print_interval(&all_interval);

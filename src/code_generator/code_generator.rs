@@ -156,6 +156,7 @@ impl RegAlloctor for GlobalRegAlloctor{
             self.bound_space(value, 4);
             self.get_space(value) // this branch will choose Some(offset)
         } else {
+            println!("{:#?}", value);
             unreachable!()
         }
         // todo:如果stack_allocation中没有offset?
@@ -863,7 +864,7 @@ impl SplitGen for FunctionData {
         *s += &format!("\tcall {}\n", m.get(&call.callee()).unwrap()[1..].to_string());
         let t = global_function_type.lock().unwrap();
         let a = t.get(&call.callee()).unwrap();
-        if a == "i32"{
+        if a == "i32" && !self.dfg().value(value).used_by().is_empty(){
             let (rst_idx, rst_begin) = g.get_space(value);
             let reg;
             let mut recover_rst = false;
@@ -1112,25 +1113,19 @@ impl SplitGen for FunctionData {
         // offset = g.get_space(value).unwrap();
         let mut recover_i = false;
         let mut recover_s = false;
-        let (reg, before) = g.get_space(value);
-        if let StorePos::Reg(reg_name) = reg{
-            reg_idx = reg_name;
-        } else if let StorePos::Stack(reg_name) = reg{
-            recover_i = true;
-            *s += &before;
-            reg_idx = reg_name;
+        if !self.dfg().value(value).used_by().is_empty(){
+            let (reg, before) = g.get_space(value);
+            if let StorePos::Reg(reg_name) = reg{
+                reg_idx = reg_name;
+            } else if let StorePos::Stack(reg_name) = reg{
+                recover_i = true;
+                *s += &before;
+                reg_idx = reg_name;
+            } else {
+                unreachable!()
+            }
         } else {
-            unreachable!()
-        }
-        let (src_reg, src_before) = g.get_space(src_value);
-        if let StorePos::Reg(reg_name) = src_reg{
-            src_reg_idx = reg_name;
-        } else if let StorePos::Stack(reg_name) = src_reg{
-            recover_s = true;
-            *s += &src_before;
-            src_reg_idx = reg_name;
-        } else {
-            unreachable!()
+            return;
         }
         // if let Some(src_offset) = g.get_space(src_value){
         //     let (src_ss, src_reg) = g.get_offset_reg(src_offset);
@@ -1157,6 +1152,16 @@ impl SplitGen for FunctionData {
                            reg_idx, tmp_reg);
             g.free_reg(tmp_reg);
         } else {
+            let (src_reg, src_before) = g.get_space(src_value);
+            if let StorePos::Reg(reg_name) = src_reg{
+                src_reg_idx = reg_name;
+            } else if let StorePos::Stack(reg_name) = src_reg{
+                recover_s = true;
+                *s += &src_before;
+                src_reg_idx = reg_name;
+            } else {
+                unreachable!()
+            }
             *s += &format!("\tmv {}, {}\n", reg_idx, src_reg_idx);
         }
         if recover_i{
