@@ -147,7 +147,7 @@ impl RegAlloctor for GlobalRegAlloctor{
         } else if let Some(offset) = self.stack_allocation.get(&value){
             let (load_string, reg_idx) = self.get_offset_reg(*offset);
             let (idx, store_string) = self.borrow_reg(&value);
-            let now = store_string + &load_string + &format!("\tsub t{}, sp, t{}\n", reg_idx,
+            let now = store_string + &load_string + &format!("\tadd t{}, sp, t{}\n", reg_idx,
                                                              reg_idx) +
                 &format!("\tlw s{}, 0(t{})\n", idx, reg_idx);
             self.free_reg(reg_idx);
@@ -185,7 +185,7 @@ impl RegAlloctor for GlobalRegAlloctor{
             if let Some((reg, offset)) = deque.pop_front(){
                 let store_offset = self.stack_allocation.get(&value).unwrap();
                 let (store_before, store_idx) = self.get_offset_reg(*store_offset);
-                let now = store_before + &format!("\tsub t{}, sp, t{}\n\tsw s{}, 0(t{})\n",
+                let now = store_before + &format!("\tadd t{}, sp, t{}\n\tsw s{}, 0(t{})\n",
                                                   store_idx, store_idx, reg, store_idx) + &format!("\tlw s{}, {}(sp)\n", reg, offset);
                 self.free_reg(store_idx);
                 self.have_borrowed.push_back(reg);
