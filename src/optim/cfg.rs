@@ -903,6 +903,7 @@ impl Interval{
             tmp.push_back(merged);
             self.interval = tmp;
         } else {
+            println!("{:#?}",func_data.dfg().value(val.clone()).kind());
             if let ValueKind::Load(load) = func_data.dfg().value(val.clone()).kind(){
                 println!("{:#?}", func_data.dfg().value(load.src()));
             }
@@ -1061,14 +1062,16 @@ impl IntervalAnalysis for Program{
                                     }
                                 }
                                 ValueKind::Alloc(alloc) => {
-                                    if !func_interval.contains_key(inst){
-                                        let mut interval = Interval::new();
-                                        interval.new_margin(bb.clone(), begin, end);
-                                        func_interval.insert(*inst.clone(), interval);
+                                    if check_used(func_data, inst){
+                                        if !func_interval.contains_key(inst){
+                                            let mut interval = Interval::new();
+                                            interval.new_margin(bb.clone(), begin, end);
+                                            func_interval.insert(*inst.clone(), interval);
+                                        }
+                                        func_interval.get_mut(&inst).unwrap().new_margin(bb, begin,
+                                                                                         end);
+                                        func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
                                     }
-                                    func_interval.get_mut(&inst).unwrap().new_margin(bb, begin,
-                                                                                     end);
-                                    func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
                                 }
                                 ValueKind::Branch(branch) => {
                                     if !check_int(func_data, &branch.cond()){
