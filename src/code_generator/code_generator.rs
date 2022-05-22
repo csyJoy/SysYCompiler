@@ -370,6 +370,7 @@ fn calculate_and_allocate_space(this: &FunctionData, reg_allocator: &HashMap<Val
         }
     }
     bits += vec.len() as i32 * 4;
+    bits += bits;
     // for (_, node) in this.layout().bbs(){
     //     for &inst in node.insts().keys(){
     //         let value_data = this.dfg().value(inst);

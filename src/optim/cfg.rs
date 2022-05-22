@@ -3,8 +3,9 @@ use std::borrow::BorrowMut;
 use std::cell::{Cell, Ref};
 use std::cmp::{Ordering, Reverse};
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::collections::hash_map::DefaultHasher;
 use std::fmt::Debug;
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 use koopa::ir::{BasicBlock, Function, FunctionData, Program, Type, TypeKind, Value};
 use koopa::ir::entities::ValueData;
 use koopa::ir::ValueKind;
@@ -228,23 +229,52 @@ impl ControlFlowGraph {
             name: "".to_string(),
         }
     }
-    fn flatten(&self) -> VecDeque<BasicBlock>{
-        let mut flatten = VecDeque::new();
-        let mut son = &self.enter.son;
-        let mut middle = VecDeque::new();
-        middle.push_back(son);
-        while(!middle.is_empty()){
-            let son = middle.pop_front().unwrap();
-            for s in son{
+    fn flatten<'a>(&self, now_cfg_inner: &CfgInner, queue: &'a mut VecDeque<BasicBlock>, visited:
+    &mut HashMap<BBType, bool>){
+        if(visited.is_empty()){
+            visited.insert(BBType::Enter, false);
+            visited.insert(BBType::Exit, false);
+            let mut queue = VecDeque::new();
+            for s in &now_cfg_inner.son{
                 if let Some(bb) = s{
-                    if !flatten.contains(bb){
-                        flatten.push_back(bb.clone());
-                        middle.push_back(&self.other.get(bb).unwrap().son);
+                    if !visited.contains_key(&BBType::Other(bb.clone())){
+                        queue.push_back(bb.clone());
+                    }
+                }
+            }
+            while !queue.is_empty(){
+                let now = queue.pop_front().unwrap();
+                if !visited.contains_key(&BBType::Other(now.clone())){
+                    visited.insert(BBType::Other(now.clone()), false);
+                }
+                for s in &self.other.get(&now).unwrap().son{
+                    if let Some(bb) = s{
+                        if !visited.contains_key(&BBType::Other(bb.clone())){
+                            queue.push_back(bb.clone());
+                        }
                     }
                 }
             }
         }
-        flatten
+        if let Some(bb) = &now_cfg_inner.code{
+            *visited.get_mut(&BBType::Other(bb.clone())).unwrap() = true;
+        } else {
+            if now_cfg_inner.son.is_empty(){
+                *visited.get_mut(&BBType::Exit).unwrap() = true;
+            } else {
+                *visited.get_mut(&BBType::Enter).unwrap() = true;
+            }
+        }
+        for s in &now_cfg_inner.son{
+            if let Some(bb) = s{
+                if !(*visited.get(&BBType::Other(bb.clone())).unwrap()){
+                    self.flatten(self.other.get(bb).unwrap(), queue, visited);
+                }
+            }
+        }
+        if let Some(bb) = now_cfg_inner.code{
+            queue.push_front(bb.clone());
+        }
     }
 }
 impl ControlFlowGraph{
@@ -312,7 +342,7 @@ enum BBType{
 }
 fn get_in_and_out(cfg: &ControlFlowGraph, define_and_use: &HashMap<BasicBlock, (HashSet<Value>,
                                                                                 HashSet<Value>)
->) -> (HashMap<BBType, HashSet<Value>>, HashMap<BBType, HashSet<Value>>){
+>, func_data: &FunctionData) -> (HashMap<BBType, HashSet<Value>>, HashMap<BBType, HashSet<Value>>){
     let mut bb_in: HashMap<BBType, HashSet<Value>> = HashMap::new();
     let mut bb_out: HashMap<BBType, HashSet<Value>> = HashMap::new();
     // init of the bb_in and bb_out
@@ -333,6 +363,7 @@ fn get_in_and_out(cfg: &ControlFlowGraph, define_and_use: &HashMap<BasicBlock, (
                 global_vec.push(bb.clone());
             }
         }
+        let mut visited: HashMap<BasicBlock, bool> = HashMap::new();
         // println!("====================iter{}===========================", count);
         // for (bb, set) in bb_in.iter(){
         //     let mut s: String = "".to_string();
@@ -362,6 +393,11 @@ fn get_in_and_out(cfg: &ControlFlowGraph, define_and_use: &HashMap<BasicBlock, (
         // }
         while !global_vec.is_empty(){
             let now_bb = global_vec.remove(0);
+            visited.insert(now_bb.clone(),true);
+            let now_bb_data = func_data.dfg().bbs().get(&now_bb).unwrap();
+            if let Some(name) = now_bb_data.name(){
+                println!("{}", name);
+            }
             let now_cfg = cfg.other.get(&now_bb).unwrap();
             let mut vec: Vec<HashSet<Value>> = Vec::new();
             for son in &now_cfg.son{
@@ -384,13 +420,15 @@ fn get_in_and_out(cfg: &ControlFlowGraph, define_and_use: &HashMap<BasicBlock, (
             let (b_in, result) = get_in(&mut b_out, define_value, use_value);
             bb_in.remove(&BBType::Other(now_bb.clone()));
             bb_in.insert(BBType::Other(now_bb.clone()), b_in.clone());
-            if result{
-                in_changed = true;
-                for fa in &now_cfg.father{
-                    if let Some(fa) = fa{
+            for fa in &now_cfg.father{
+                if let Some(fa) = fa{
+                    if let None = visited.get(fa){
                         global_vec.push(fa.clone());
                     }
                 }
+            }
+            if result{
+                in_changed = true;
             }
         }
         // while !global_vec.is_empty() {
@@ -497,7 +535,8 @@ impl ActiveAnalysis for Program{
         let cfg_all = Self::build_control_flow_graph(self);
         for (func, cfg) in &cfg_all{
             if let Some(define_and_use) = define_and_use_all.get(func){
-                let (bb_in, bb_out) = get_in_and_out(&cfg, &define_and_use);
+                let (bb_in, bb_out) = get_in_and_out(&cfg, &define_and_use, &self.func(func.clone
+                ()));
                 active_var_vec.insert(func.clone() ,ActiveVar{in_var: bb_in, out_var: bb_out});
             } else {
                 unreachable!()
@@ -539,12 +578,12 @@ impl ActiveAnalysis for Program{
                             define_value.insert(inst.clone());
                         }
                         ValueKind::Store(store) => {
-
-                            if !define_value.contains(&store.dest()) && !check_int(func_data,
-                                                                                   &store.dest())
-                                && !check_global(&global_val, &store.dest()){
-                                use_value.insert(store.dest());
-                            }
+                            define_value.insert(store.dest().clone());
+                            // if !define_value.contains(&store.dest()) && !check_int(func_data,
+                            //                                                        &store.dest())
+                            //     && !check_global(&global_val, &store.dest()){
+                            //     use_value.insert(store.dest());
+                            // }
                             if !define_value.contains(&store.value()) && !check_int(func_data,
                                                                                     &store.value
                                                                                     ()) &&
@@ -652,7 +691,16 @@ impl PartialOrd<Self> for StartQueueInner {
         } else if self.1 > other.1{
             Some(Ordering::Greater)
         } else {
-            Some(Ordering::Equal)
+            let mut hasher = DefaultHasher::new();
+            self.0.hash(&mut hasher);
+            let a = hasher.finish();
+            other.0.hash(&mut hasher);
+            let b = hasher.finish();
+            if  a < b{
+                Some(Ordering::Less)
+            } else {
+                Some(Ordering::Greater)
+            }
         }
     }
 }
@@ -690,8 +738,11 @@ impl Iterator for IntervalHandler{
         if !self.start.is_empty(){
             let mut tmp = Vec::new();
             let StartQueueInner(val, idx) = self.start.pop().unwrap().0;
+            println!("{:#?} start at {}", val, idx);
             while idx > self.end.peek().unwrap().0.1{
-                tmp.push(self.end.pop().unwrap().0.0.clone());
+                let StartQueueInner(val, idx) = self.end.pop().unwrap().0;
+                println!("{:#?} end at {}", val, idx);
+                tmp.push(val.clone());
             }
             Some((val, tmp))
         } else {
@@ -779,7 +830,9 @@ impl IntervalAnalysis for Program{
         let (act, cfg) = self.active_analysis();
         for (func, cfg) in cfg.iter(){
             if !cfg.other.is_empty(){
-                let mut flatten = cfg.flatten();
+                let mut flatten = VecDeque::new();
+                let mut visited = HashMap::new();
+                cfg.flatten(&cfg.enter, &mut flatten, &mut visited);
                 let act = act.get(func).unwrap();
                 let mut cnt = 0 as i32;
                 let mut func_interval = HashMap::new();
@@ -787,6 +840,11 @@ impl IntervalAnalysis for Program{
                     let bb = flatten.pop_back().unwrap();
                     if let Some(bbn) = self.func(func.clone()).layout().bbs().node(&bb) {
                         let func_data = self.func(func.clone());
+                        let bb_data = func_data.dfg().bbs().get(&bb);
+                        let bb_data = bb_data.unwrap();
+                        if let Some(name) = bb_data.name(){
+                            println!("{}", name);
+                        }
                         let end = cnt;
                         let begin  = cnt - bbn.insts().len() as i32;
                         if let Some(out_var) = act.out_var.get(&BBType::Other(bb)){
@@ -813,58 +871,66 @@ impl IntervalAnalysis for Program{
                             match value_data.kind() {
                                 ValueKind::Return(ret) => {
                                     if let Some(val) = ret.value() {
-                                        if !func_interval.contains_key(&val){
-                                            let mut interval = Interval::new();
-                                            interval.new_margin(bb.clone(), begin, end);
-                                            func_interval.insert(val.clone(), interval);
+                                        if !check_int(func_data, &val){
+                                            if !func_interval.contains_key(&val){
+                                                let mut interval = Interval::new();
+                                                interval.new_margin(bb.clone(), begin, end);
+                                                func_interval.insert(val.clone(), interval);
+                                            }
+                                            func_interval.get_mut(&val).unwrap().new_margin(bb.clone
+                                            (), begin, end);
+                                            func_interval.get_mut(&val).unwrap().insert(&bb, cnt);
                                         }
-                                        func_interval.get_mut(&val).unwrap().new_margin(bb.clone
-                                        (), begin, end);
-                                        func_interval.get_mut(&val).unwrap().insert(&bb, cnt);
                                     }
                                 }
                                 ValueKind::Binary(bin) => {
+                                    if !check_int(func_data, &bin.rhs()){
+                                        if !func_interval.contains_key(&bin.rhs()){
+                                            let mut interval = Interval::new();
+                                            interval.new_margin(bb.clone(), begin, end);
+                                            func_interval.insert(bin.rhs().clone(), interval);
+                                        }
+                                        func_interval.get_mut(&bin.rhs()).unwrap().new_margin(bb.clone
+                                        (), begin, end);
+                                        func_interval.get_mut(&bin.rhs()).unwrap().insert(&bb, cnt);
+                                    }
+                                    if !check_int(func_data, &bin.lhs()){
+                                        if !func_interval.contains_key(&bin.lhs()){
+                                            let mut interval = Interval::new();
+                                            interval.new_margin(bb.clone(), begin, end);
+                                            func_interval.insert(bin.lhs().clone(), interval);
+                                        }
+                                        func_interval.get_mut(&bin.lhs()).unwrap().new_margin(bb.clone
+                                        (), begin, end);
+                                        func_interval.get_mut(&bin.lhs()).unwrap().insert(&bb, cnt);
+                                    }
                                     if !func_interval.contains_key(inst){
                                         let mut interval = Interval::new();
                                         interval.new_margin(bb.clone(), begin, end);
                                         func_interval.insert(*inst.clone(), interval);
                                     }
-                                    if !func_interval.contains_key(&bin.rhs()){
-                                        let mut interval = Interval::new();
-                                        interval.new_margin(bb.clone(), begin, end);
-                                        func_interval.insert(bin.rhs().clone(), interval);
-                                    }
-                                    if !func_interval.contains_key(&bin.lhs()){
-                                        let mut interval = Interval::new();
-                                        interval.new_margin(bb.clone(), begin, end);
-                                        func_interval.insert(bin.lhs().clone(), interval);
-                                    }
                                     func_interval.get_mut(&inst).unwrap().new_margin(bb.clone
                                     (), begin, end);
                                     func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
-                                    func_interval.get_mut(&bin.rhs()).unwrap().new_margin(bb.clone
-                                    (), begin, end);
-                                    func_interval.get_mut(&bin.rhs()).unwrap().insert(&bb, cnt);
-                                    func_interval.get_mut(&bin.lhs()).unwrap().new_margin(bb.clone
-                                    (), begin, end);
-                                    func_interval.get_mut(&bin.lhs()).unwrap().insert(&bb, cnt);
                                 }
                                 ValueKind::Store(store) => {
-                                    if !func_interval.contains_key(&store.value()){
-                                        let mut interval = Interval::new();
-                                        interval.new_margin(bb.clone(), begin, end);
-                                        func_interval.insert(store.value().clone(), interval);
+                                    if !check_int(func_data, &store.value()){
+                                        if !func_interval.contains_key(&store.value()){
+                                            let mut interval = Interval::new();
+                                            interval.new_margin(bb.clone(), begin, end);
+                                            func_interval.insert(store.value().clone(), interval);
+                                        }
+                                        func_interval.get_mut(&store.value()).unwrap().new_margin
+                                        (bb, begin, end);
+                                        func_interval.get_mut(&store.value()).unwrap().insert(&bb, cnt);
                                     }
-                                    func_interval.get_mut(&store.value()).unwrap().new_margin
-                                    (bb, begin, end);
-                                    func_interval.get_mut(&store.value()).unwrap().insert(&bb, cnt);
                                     if !func_interval.contains_key(&store.dest()){
                                         let mut interval = Interval::new();
                                         interval.new_margin(bb.clone(), begin, end);
                                         func_interval.insert(store.dest().clone(), interval);
                                     }
                                     func_interval.get_mut(&store.dest()).unwrap().new_margin(bb, begin, end);
-                                    func_interval.get_mut(&store.dest()).unwrap().insert(&bb, cnt);
+                                    func_interval.get_mut(&store.dest()).unwrap().cut(&bb, cnt);
                                 }
                                 ValueKind::Load(load) => {
                                     if !func_interval.contains_key(inst){
@@ -895,14 +961,16 @@ impl IntervalAnalysis for Program{
                                     func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
                                 }
                                 ValueKind::Branch(branch) => {
-                                    if !func_interval.contains_key(&branch.cond()){
-                                        let mut interval = Interval::new();
-                                        interval.new_margin(bb.clone(), begin, end);
-                                        func_interval.insert(branch.cond().clone(), interval);
+                                    if !check_int(func_data, &branch.cond()){
+                                        if !func_interval.contains_key(&branch.cond()){
+                                            let mut interval = Interval::new();
+                                            interval.new_margin(bb.clone(), begin, end);
+                                            func_interval.insert(branch.cond().clone(), interval);
+                                        }
+                                        func_interval.get_mut(&branch.cond()).unwrap().new_margin(bb,
+                                                                                                  begin, end);
+                                        func_interval.get_mut(&branch.cond()).unwrap().insert(&bb, cnt);
                                     }
-                                    func_interval.get_mut(&branch.cond()).unwrap().new_margin(bb,
-                                                                                              begin, end);
-                                    func_interval.get_mut(&branch.cond()).unwrap().insert(&bb, cnt);
                                 }
                                 ValueKind::Jump(jump) => {}
                                 ValueKind::Call(call) => {
@@ -918,14 +986,16 @@ impl IntervalAnalysis for Program{
                                             }
                                         }
                                         for arg in call.args(){
-                                            if !func_interval.contains_key(arg){
-                                                let mut interval = Interval::new();
-                                                interval.new_margin(bb.clone(), begin, end);
-                                                func_interval.insert(arg.clone(), interval);
+                                            if !check_int(func_data, arg){
+                                                if !func_interval.contains_key(arg){
+                                                    let mut interval = Interval::new();
+                                                    interval.new_margin(bb.clone(), begin, end);
+                                                    func_interval.insert(arg.clone(), interval);
+                                                }
+                                                func_interval.get_mut(arg).unwrap().new_margin(bb,
+                                                                                               begin, end);
+                                                func_interval.get_mut(arg).unwrap().insert(&bb, cnt);
                                             }
-                                            func_interval.get_mut(arg).unwrap().new_margin(bb,
-                                                                                                           begin, end);
-                                            func_interval.get_mut(arg).unwrap().insert(&bb, cnt);
                                         }
                                     }
                                 }
@@ -940,10 +1010,15 @@ impl IntervalAnalysis for Program{
                                         interval.new_margin(bb.clone(), begin, end);
                                         func_interval.insert(get_elem_ptr.src().clone(), interval);
                                     }
-                                    if !func_interval.contains_key(&get_elem_ptr.index()){
-                                        let mut interval = Interval::new();
-                                        interval.new_margin(bb.clone(), begin, end);
-                                        func_interval.insert(get_elem_ptr.index().clone(), interval);
+                                    if !check_int(func_data, &get_elem_ptr.index()){
+                                        if !func_interval.contains_key(&get_elem_ptr.index()){
+                                            let mut interval = Interval::new();
+                                            interval.new_margin(bb.clone(), begin, end);
+                                            func_interval.insert(get_elem_ptr.index().clone(), interval);
+                                        }
+                                        func_interval.get_mut(&get_elem_ptr.index()).unwrap()
+                                            .new_margin(bb, begin, end);
+                                        func_interval.get_mut(&get_elem_ptr.index()).unwrap().insert(&bb, cnt);
                                     }
                                     func_interval.get_mut(&inst).unwrap().new_margin(bb, begin,
                                                                                      end);
@@ -951,9 +1026,6 @@ impl IntervalAnalysis for Program{
                                     func_interval.get_mut(&get_elem_ptr.src()).unwrap().new_margin(bb,
                                                                                            begin, end);
                                     func_interval.get_mut(&get_elem_ptr.src()).unwrap().insert(&bb, cnt);
-                                    func_interval.get_mut(&get_elem_ptr.index()).unwrap()
-                                        .new_margin(bb, begin, end);
-                                    func_interval.get_mut(&get_elem_ptr.index()).unwrap().insert(&bb, cnt);
                                 }
                                 ValueKind::GetPtr(get_ptr) => {
                                     if !func_interval.contains_key(inst) {
@@ -966,10 +1038,14 @@ impl IntervalAnalysis for Program{
                                         interval.new_margin(bb.clone(), begin, end);
                                         func_interval.insert(get_ptr.src().clone(), interval);
                                     }
-                                    if !func_interval.contains_key(&get_ptr.index()){
-                                        let mut interval = Interval::new();
-                                        interval.new_margin(bb.clone(), begin, end);
-                                        func_interval.insert(get_ptr.index().clone(), interval);
+                                    if !check_int(func_data, &get_ptr.index()){
+                                        if !func_interval.contains_key(&get_ptr.index()){
+                                            let mut interval = Interval::new();
+                                            interval.new_margin(bb.clone(), begin, end);
+                                            func_interval.insert(get_ptr.index().clone(), interval);
+                                        }
+                                        func_interval.get_mut(&get_ptr.index()).unwrap().new_margin(bb, begin, end);
+                                        func_interval.get_mut(&get_ptr.index()).unwrap().insert(&bb, cnt);
                                     }
                                     //todo: 在进入一个新的bb之后，我们需要将bb的margin加入interval中
                                     func_interval.get_mut(&inst).unwrap().new_margin(bb.clone(),
@@ -978,8 +1054,6 @@ impl IntervalAnalysis for Program{
                                     func_interval.get_mut(&get_ptr.src()).unwrap().new_margin(bb,
                                                                                               begin, end);
                                     func_interval.get_mut(&get_ptr.src()).unwrap().insert(&bb, cnt);
-                                    func_interval.get_mut(&get_ptr.index()).unwrap().new_margin(bb, begin, end);
-                                    func_interval.get_mut(&get_ptr.index()).unwrap().insert(&bb, cnt);
                                 }
                                 _ => unreachable!(),
                             }
@@ -1007,7 +1081,7 @@ impl IntervalAnalysis for Program{
                 interval_1.merge_interval();
             }
         }
-        // self.print_interval(&all_interval);
+        self.print_interval(&all_interval);
         all_interval
     }
     fn print_interval(&self, interval: &HashMap<Function, HashMap<Value, Interval>>) {
