@@ -199,8 +199,13 @@ impl RegAlloctor for GlobalRegAlloctor{
         // self.free_reg()
         if let Some(deque) = self.borrowed_reg.get_mut(&value){
             if let Some((RegType::T(idx), offset)) = deque.pop_front(){
+                let store_offset  = self.stack_allocation.get(&value).unwrap();
+                let (store_before, store_idx) = self.get_offset_reg(*store_offset);
+                let now = store_before + &format!("\tadd t{}, sp, t{}\n\tsw t{}, 0(t{})\n",
+                                                          store_idx, store_idx, idx, store_idx);
                 self.free_reg(idx);
-                "".to_string()
+                self.free_reg(store_idx);
+                now
             } else {
                 unreachable!()
             }
