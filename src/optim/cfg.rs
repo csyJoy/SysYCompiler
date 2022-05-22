@@ -849,16 +849,18 @@ impl IntervalAnalysis for Program{
                         let begin  = cnt - bbn.insts().len() as i32;
                         if let Some(out_var) = act.out_var.get(&BBType::Other(bb)){
                             for elem in out_var {
-                                if !func_interval.contains_key(elem){
-                                    let mut interval = Interval::new();
-                                    interval.new_margin(bb.clone(), begin, cnt);
-                                    interval.insert(&bb, cnt);
-                                    func_interval.insert(elem.clone(), interval);
-                                } else {
-                                    func_interval.get_mut(elem).unwrap().new_margin(bb.clone(),
-                                                                                    begin ,cnt);
-                                    func_interval.get_mut(elem).unwrap().insert(&bb,
+                                if !check_int(func_data, elem){
+                                    if !func_interval.contains_key(elem){
+                                        let mut interval = Interval::new();
+                                        interval.new_margin(bb.clone(), begin, cnt);
+                                        interval.insert(&bb, cnt);
+                                        func_interval.insert(elem.clone(), interval);
+                                    } else {
+                                        func_interval.get_mut(elem).unwrap().new_margin(bb.clone(),
+                                                                                        begin ,cnt);
+                                        func_interval.get_mut(elem).unwrap().insert(&bb,
                                                                                     cnt);
+                                    }
                                 }
                             }
                         }

@@ -14,7 +14,7 @@ use koopa::ir::ValueKind::Integer;
 use rand::Rng;
 use crate::{ActiveAnalysis, IntervalAnalysis};
 use crate::code_generator::code_generator::StorePos::Stack;
-use crate::optim::reg_alloc::reg_alloc;
+use crate::optim::reg_alloc::RegAlloc;
 
 pub trait GenerateAsm{
     fn generate(&self) -> String;
@@ -283,7 +283,7 @@ impl GenerateAsm for Program{
             }
         }
         let interval = self.get_interval();
-        let mut alloc_result = reg_alloc(interval);
+        let mut alloc_result = self.reg_alloc(interval);
         for &func in self.func_layout(){
             m.insert(func.clone(), self.func(func).name().to_string());
             if let TypeKind::Function(_, a) = self.func(func).ty().kind(){
