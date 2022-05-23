@@ -843,13 +843,13 @@ impl SplitGen for FunctionData {
         }
         // g.bound_space(value, self.dfg().value(value).ty().size() as i32);
         if recover_idx{
-            g.return_reg(idx);
+            *s += &g.return_reg(idx);
         }
         if recover_ptr{
-            g.return_reg(value);
+            *s += &g.return_reg(value);
         }
         if recover_src{
-            g.return_reg(src);
+            *s += &g.return_reg(src);
         }
         if tmp_src_reg != -1{
             g.free_reg(tmp_src_reg);
