@@ -29,10 +29,11 @@ pub trait RegAlloctor{
     fn get_offset_reg(&mut self, offset: i32) -> (String, i32);
     fn alloc_tmp_reg(&mut self) -> Option<i32>;
     fn free_reg(&mut self, idx: i32) -> Option<i32>;
-    fn bound_space(&mut self, value: Value, size: i32);
+    fn alloc_stack_space(&mut self, value: Value, size: i32);
     fn get_space(&mut self, value: Value) -> (StorePos, String);
     fn return_reg(&mut self, value: Value) -> String;
     fn borrow_reg(&mut self, value: &Value) -> (String, String);
+    fn bound_stack_space(&mut self, value: &Value, offset: i32);
 }
 pub enum StoreType{
     Value, // single value or one dimension array
@@ -77,6 +78,9 @@ impl GlobalRegAlloctor{
     }
 }
 impl RegAlloctor for GlobalRegAlloctor{
+    fn bound_stack_space(&mut self, value: &Value, offset: i32) {
+        self.stack_allocation.insert(value.clone(), offset);
+    }
     fn store_type_bound(&mut self, value: Value, store_type: StoreType){
         self.store_type.insert(value.clone(), store_type);
     }
@@ -136,7 +140,7 @@ impl RegAlloctor for GlobalRegAlloctor{
     // fn get_reg(&self, value: Value) -> Option<i32> {
     //     Some(*self.map.get(&value).unwrap())
     // }
-    fn bound_space(&mut self, value: Value, size: i32){
+    fn alloc_stack_space(&mut self, value: Value, size: i32){
         self.stack_allocation.insert(value, self.offset);
         self.offset += size;
     }
@@ -157,7 +161,7 @@ impl RegAlloctor for GlobalRegAlloctor{
             self.free_reg(reg_idx);
             (StorePos::Stack(format!("{}", idx)), now)
         } else if let None = self.reg_allocation.get(&value).unwrap(){ //这是为了解决第一次存储reg spill的数据
-            self.bound_space(value, 4);
+            self.alloc_stack_space(value, 4);
             self.get_space(value) // this branch will choose Some(offset)
         } else {
             println!("{:#?}", value);
@@ -735,6 +739,7 @@ impl SplitGen for FunctionData {
         let mut m = global_reg_allocator.lock().unwrap();
         let g = m.get_mut();
         let mut ty_size = 0;
+        let mut recover_src = false;
         g.store_type_bound(value, StoreType::Point);
         let var_type = global_variable_type.lock().unwrap();
         if let Some((global_var, size)) = var_type.get(&src){
@@ -785,6 +790,17 @@ impl SplitGen for FunctionData {
             *s += &(ss + &format!("\tadd {}, sp, {}\n",reg, reg));
             // }
             // *s += &format!("\tlw t{}, {}(sp)\n",src_reg, offset);
+        } else if let ValueKind::GetElemPtr(_) = &self.dfg().value(src).kind(){
+            let (src_pos, begin_src) = g.get_space(src.clone());
+            if let StorePos::Reg(reg_name) = src_pos{
+                src_reg = reg_name;
+            } else if let StorePos::Stack(reg_name) = src_pos{
+                src_reg = reg_name;
+                recover_src = true;
+                *s += &begin_src;
+            } else {
+                unreachable!()
+            }
         } else {
             let mut m = global_varable.lock().unwrap();
             let k = m.get_mut(&src).unwrap();
@@ -819,6 +835,9 @@ impl SplitGen for FunctionData {
         }
         if recover_ptr{
             g.return_reg(value);
+        }
+        if recover_src{
+            g.return_reg(src);
         }
         if tmp_src_reg != -1{
             g.free_reg(tmp_src_reg);
@@ -1398,8 +1417,9 @@ impl SplitGen for FunctionData {
                 }
             }
             // if value is array or i32 or ptr which reg spill we should bound a value to it
-            if let None = g.reg_allocation.get(&value){
-                g.bound_space(value, size);
+            let tmp = g.reg_allocation.get(&value);
+            if let None = tmp{
+                g.alloc_stack_space(value, size);
             }
         } else {
             unreachable!();

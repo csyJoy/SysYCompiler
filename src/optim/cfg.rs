@@ -619,6 +619,22 @@ fn check_used(func_data: &FunctionData, val: &Value) -> bool{
         true
     }
 }
+fn check_vec(func_data: &FunctionData, val: &Value) -> bool{
+    let dfg = func_data.dfg();
+    if let ValueKind::GetElemPtr(_) = dfg.value(val.clone()).kind(){
+        return false;
+    } else {
+        if let TypeKind::Pointer(point) = dfg.value(val.clone()).ty().kind(){
+            if let TypeKind::Array(_, _) = point.kind(){
+                return true;
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+}
 
 impl ActiveAnalysis for Program{
     fn active_analysis(&self) -> (HashMap<Function, ActiveVar>, HashMap<Function, ControlFlowGraph>) {
@@ -671,7 +687,9 @@ impl ActiveAnalysis for Program{
                             define_value.insert(inst.clone());
                         }
                         ValueKind::Store(store) => {
-                            define_value.insert(store.dest().clone());
+                            if !check_vec(func_data, &store.dest()){
+                                define_value.insert(store.dest().clone());
+                            }
                             // if !define_value.contains(&store.dest()) && !check_int(func_data,
                             //                                                        &store.dest())
                             //     && !check_global(&global_val, &store.dest()){
@@ -728,10 +746,13 @@ impl ActiveAnalysis for Program{
                             }
                         }
                         ValueKind::GetElemPtr(get_elem_ptr) => {
-                            define_value.insert(inst.clone());
+                            if check_used(func_data, inst){
+                                define_value.insert(inst.clone());
+                            }
                             if !define_value.contains(&get_elem_ptr.src()) && !check_global
                                 (&global_val, &get_elem_ptr.src())&& !check_int
-                                (func_data, &get_elem_ptr.src()) {
+                                (func_data, &get_elem_ptr.src()) && !check_vec(func_data,
+                                                                               &get_elem_ptr.src()){
                                 use_value.insert(get_elem_ptr.src().clone());
                             }
                             if !define_value.contains(&get_elem_ptr.index())  && !check_global
@@ -741,7 +762,9 @@ impl ActiveAnalysis for Program{
                             }
                         }
                         ValueKind::GetPtr(get_ptr) => {
-                            define_value.insert(inst.clone());
+                            if check_used(func_data, inst){
+                                define_value.insert(inst.clone());
+                            }
                             if !define_value.contains(&get_ptr.src())  && !check_global
                                 (&global_val, &get_ptr.src())&& !check_int(func_data,
                                                                                       &get_ptr
@@ -903,7 +926,10 @@ impl Interval{
             tmp.push_back(merged);
             self.interval = tmp;
         } else {
+            let vv = func_data.dfg().value(val.clone());
+            println!("{:#?}", vv);
             println!("{:#?}",func_data.dfg().value(val.clone()).kind());
+            println!("{:#?}", func_data.dfg().value(vv.used_by().iter().next().unwrap().clone()));
             if let ValueKind::Load(load) = func_data.dfg().value(val.clone()).kind(){
                 println!("{:#?}", func_data.dfg().value(load.src()));
             }
@@ -1030,13 +1056,24 @@ impl IntervalAnalysis for Program{
                                         func_interval.get_mut(&store.value()).unwrap().insert(&bb, cnt);
                                     }
                                     if !check_global(&global_var, &store.dest()){
-                                        if !func_interval.contains_key(&store.dest()){
-                                            let mut interval = Interval::new();
-                                            interval.new_margin(bb.clone(), begin, end);
-                                            func_interval.insert(store.dest().clone(), interval);
+                                        if let ValueKind::GetElemPtr(_)= func_data.dfg().value
+                                        (store.dest()).kind(){
+                                            if !func_interval.contains_key(&store.dest()){
+                                                let mut interval = Interval::new();
+                                                interval.new_margin(bb.clone(), begin, end);
+                                                func_interval.insert(store.dest().clone(), interval);
+                                            }
+                                            func_interval.get_mut(&store.dest()).unwrap().new_margin(bb, begin, end);
+                                            func_interval.get_mut(&store.dest()).unwrap().insert(&bb, cnt);
+                                        } else {
+                                            if !func_interval.contains_key(&store.dest()){
+                                                let mut interval = Interval::new();
+                                                interval.new_margin(bb.clone(), begin, end);
+                                                func_interval.insert(store.dest().clone(), interval);
+                                            }
+                                            func_interval.get_mut(&store.dest()).unwrap().new_margin(bb, begin, end);
+                                            func_interval.get_mut(&store.dest()).unwrap().cut(&bb, cnt);
                                         }
-                                        func_interval.get_mut(&store.dest()).unwrap().new_margin(bb, begin, end);
-                                        func_interval.get_mut(&store.dest()).unwrap().cut(&bb, cnt);
                                     }
                                 }
                                 ValueKind::Load(load) => {
@@ -1062,7 +1099,7 @@ impl IntervalAnalysis for Program{
                                     }
                                 }
                                 ValueKind::Alloc(alloc) => {
-                                    if check_used(func_data, inst){
+                                    if check_used(func_data, inst) && !check_vec(func_data, inst){
                                         if !func_interval.contains_key(inst){
                                             let mut interval = Interval::new();
                                             interval.new_margin(bb.clone(), begin, end);
@@ -1113,15 +1150,25 @@ impl IntervalAnalysis for Program{
                                     }
                                 }
                                 ValueKind::GetElemPtr(get_elem_ptr) => {
-                                    if !func_interval.contains_key(inst){
-                                        let mut interval = Interval::new();
-                                        interval.new_margin(bb.clone(), begin, end);
-                                        func_interval.insert(*inst.clone(), interval);
+                                    if check_used(func_data, inst){
+                                        if !func_interval.contains_key(inst){
+                                            let mut interval = Interval::new();
+                                            interval.new_margin(bb.clone(), begin, end);
+                                            func_interval.insert(*inst.clone(), interval);
+                                        }
+                                        func_interval.get_mut(&inst).unwrap().new_margin(bb, begin,
+                                                                                         end);
+                                        func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
                                     }
-                                    if !func_interval.contains_key(&get_elem_ptr.src()){
-                                        let mut interval = Interval::new();
-                                        interval.new_margin(bb.clone(), begin, end);
-                                        func_interval.insert(get_elem_ptr.src().clone(), interval);
+                                    if !check_vec(func_data, &get_elem_ptr.src()){
+                                        if !func_interval.contains_key(&get_elem_ptr.src()){
+                                            let mut interval = Interval::new();
+                                            interval.new_margin(bb.clone(), begin, end);
+                                            func_interval.insert(get_elem_ptr.src().clone(), interval);
+                                        }
+                                        func_interval.get_mut(&get_elem_ptr.src()).unwrap().new_margin(bb,
+                                                                                                       begin, end);
+                                        func_interval.get_mut(&get_elem_ptr.src()).unwrap().insert(&bb, cnt);
                                     }
                                     if !check_int(func_data, &get_elem_ptr.index()){
                                         if !func_interval.contains_key(&get_elem_ptr.index()){
@@ -1133,18 +1180,17 @@ impl IntervalAnalysis for Program{
                                             .new_margin(bb, begin, end);
                                         func_interval.get_mut(&get_elem_ptr.index()).unwrap().insert(&bb, cnt);
                                     }
-                                    func_interval.get_mut(&inst).unwrap().new_margin(bb, begin,
-                                                                                     end);
-                                    func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
-                                    func_interval.get_mut(&get_elem_ptr.src()).unwrap().new_margin(bb,
-                                                                                           begin, end);
-                                    func_interval.get_mut(&get_elem_ptr.src()).unwrap().insert(&bb, cnt);
                                 }
                                 ValueKind::GetPtr(get_ptr) => {
-                                    if !func_interval.contains_key(inst) {
-                                        let mut interval = Interval::new();
-                                        interval.new_margin(bb.clone(), begin, end);
-                                        func_interval.insert(*inst.clone(), interval);
+                                    if check_used(func_data, inst){
+                                        if !func_interval.contains_key(inst) {
+                                            let mut interval = Interval::new();
+                                            interval.new_margin(bb.clone(), begin, end);
+                                            func_interval.insert(*inst.clone(), interval);
+                                        }
+                                        func_interval.get_mut(&inst).unwrap().new_margin(bb.clone(),
+                                                                                         begin, end);
+                                        func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
                                     }
                                     if !func_interval.contains_key(&get_ptr.src()) {
                                         let mut interval = Interval::new();
@@ -1161,9 +1207,6 @@ impl IntervalAnalysis for Program{
                                         func_interval.get_mut(&get_ptr.index()).unwrap().insert(&bb, cnt);
                                     }
                                     //todo: 在进入一个新的bb之后，我们需要将bb的margin加入interval中
-                                    func_interval.get_mut(&inst).unwrap().new_margin(bb.clone(),
-                                                                                     begin, end);
-                                    func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
                                     func_interval.get_mut(&get_ptr.src()).unwrap().new_margin(bb,
                                                                                               begin, end);
                                     func_interval.get_mut(&get_ptr.src()).unwrap().insert(&bb, cnt);
