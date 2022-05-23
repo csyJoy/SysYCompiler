@@ -775,23 +775,7 @@ impl SplitGen for FunctionData {
             // *s += &format!("\tlw t{}, {}(sp)\n",idx_reg, g.get_space(idx).unwrap());
         }
         let mut reg_out = -1;
-        if let Some(offset) =  g.stack_allocation.get(&src){
-            let (ss, reg) = g.get_offset_reg(*offset);
-            reg_out = reg;
-            // if let StorePos::Stack(reg_name) = src_pos{
-            //     *s += &begin_src;
-            //     src_reg = reg_name;
-            // } else {
-            //     unreachable!()
-            // }
-            // if let StoreType::Point = g.store_type.get(&src).unwrap(){
-            //     *s += &(ss + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg)+ &format!("\tlw t{}, 0(t{})\n", src_reg, src_reg));
-            // } else {
-            src_reg = format!("t{}", reg);
-            *s += &(ss + &format!("\tadd {}, sp, {}\n",src_reg, src_reg));
-            // }
-            // *s += &format!("\tlw t{}, {}(sp)\n",src_reg, offset);
-        } else if let Some(k) = global_var.get(&src){
+        if let Some(k) = global_var.get(&src){
             tmp_src_reg = g.alloc_tmp_reg().unwrap();
             src_reg = format!("t{}", tmp_src_reg);
             *s += &format!("\tla {}, {}\n",src_reg, k[1..].to_string());
@@ -817,7 +801,23 @@ impl SplitGen for FunctionData {
             } else {
                 unreachable!()
             }
-        }else {
+        } else if let Some(offset) =  g.stack_allocation.get(&src){
+            let (ss, reg) = g.get_offset_reg(*offset);
+            reg_out = reg;
+            // if let StorePos::Stack(reg_name) = src_pos{
+            //     *s += &begin_src;
+            //     src_reg = reg_name;
+            // } else {
+            //     unreachable!()
+            // }
+            // if let StoreType::Point = g.store_type.get(&src).unwrap(){
+            //     *s += &(ss + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg)+ &format!("\tlw t{}, 0(t{})\n", src_reg, src_reg));
+            // } else {
+            src_reg = format!("t{}", reg);
+            *s += &(ss + &format!("\tadd {}, sp, {}\n",src_reg, src_reg));
+            // }
+            // *s += &format!("\tlw t{}, {}(sp)\n",src_reg, offset);
+        } else {
             unreachable!()
         }
         //todo: 没有添加对大的type_size的特殊处理
