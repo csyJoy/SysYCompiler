@@ -1325,7 +1325,7 @@ impl SplitGen for FunctionData {
                         unreachable!()
                     }
                     if let ValueKind::GetElemPtr(_) = self.dfg().value(dest).kind(){
-                        *s += &format!("\tmv {}, 0({})\n",value_reg, dest_reg);
+                        *s += &format!("\tsw {}, 0({})\n",value_reg, dest_reg);
                     } else if let ValueKind::GetPtr(_) = self.dfg().value(dest).kind(){
                         *s += &format!("\tsw {}, 0({})\n",value_reg, dest_reg);
                     } else {
