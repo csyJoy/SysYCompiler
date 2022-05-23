@@ -430,6 +430,8 @@ fn get_in_and_out(cfg: &ControlFlowGraph, define_and_use: &HashMap<BasicBlock, (
                 let col2 = pre_out.difference(&b_out).collect::<HashSet<&Value>>();
                 if col1.is_empty() && col2.is_empty(){
                     continue;
+                } else {
+                    in_changed = true;
                 }
             } else {
                 in_changed = true;
@@ -636,11 +638,12 @@ fn check_vec(func_data: &FunctionData, map: &Ref<HashMap<Value, ValueData>>, val
             return false;
         } else if let ValueKind::GetPtr(_) = dfg.value(val.clone()).kind(){
             return false;
-        } else{
+        } else {
             if let TypeKind::Pointer(point) = dfg.value(val.clone()).ty().kind(){
                 if let TypeKind::Array(_, _) = point.kind(){
                     return true;
                 } else {
+                    println!("{:#?}", point.to_string());
                     return false;
                 }
             } else {
