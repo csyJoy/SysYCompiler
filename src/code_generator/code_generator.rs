@@ -737,6 +737,7 @@ impl SplitGen for FunctionData {
         let mut tmp_src_reg = -1;
         let mut tmp_idx_reg = -1;
         let mut m = global_reg_allocator.lock().unwrap();
+        let mut global_var = global_varable.lock().unwrap();
         let g = m.get_mut();
         let mut ty_size = 0;
         let mut recover_src = false;
@@ -790,23 +791,34 @@ impl SplitGen for FunctionData {
             *s += &(ss + &format!("\tadd {}, sp, {}\n",src_reg, src_reg));
             // }
             // *s += &format!("\tlw t{}, {}(sp)\n",src_reg, offset);
-        } else if let ValueKind::GetElemPtr(_) = &self.dfg().value(src).kind(){
+        } else if let Some(k) = global_var.get(&src){
+            tmp_src_reg = g.alloc_tmp_reg().unwrap();
+            src_reg = format!("t{}", tmp_src_reg);
+            *s += &format!("\tla {}, {}\n",src_reg, k[1..].to_string());
+        }else if let ValueKind::GetElemPtr(_) = &self.dfg().value(src).kind() {
             let (src_pos, begin_src) = g.get_space(src.clone());
-            if let StorePos::Reg(reg_name) = src_pos{
+            if let StorePos::Reg(reg_name) = src_pos {
                 src_reg = reg_name;
-            } else if let StorePos::Stack(reg_name) = src_pos{
+            } else if let StorePos::Stack(reg_name) = src_pos {
                 src_reg = reg_name;
                 recover_src = true;
                 *s += &begin_src;
             } else {
                 unreachable!()
             }
-        } else {
-            let mut m = global_varable.lock().unwrap();
-            let k = m.get_mut(&src).unwrap();
-            tmp_src_reg = g.alloc_tmp_reg().unwrap();
-            src_reg = format!("t{}", tmp_src_reg);
-            *s += &format!("\tla {}, {}\n",src_reg, k[1..].to_string());
+        }else if let ValueKind::GetPtr(_) = &self.dfg().value(src).kind() {
+            let (src_pos, begin_src) = g.get_space(src.clone());
+            if let StorePos::Reg(reg_name) = src_pos {
+                src_reg = reg_name;
+            } else if let StorePos::Stack(reg_name) = src_pos {
+                src_reg = reg_name;
+                recover_src = true;
+                *s += &begin_src;
+            } else {
+                unreachable!()
+            }
+        }else {
+            unreachable!()
         }
         //todo: 没有添加对大的type_size的特殊处理
         let type_size_reg = g.alloc_tmp_reg().unwrap();

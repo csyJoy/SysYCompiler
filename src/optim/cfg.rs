@@ -619,12 +619,10 @@ fn check_used(func_data: &FunctionData, val: &Value) -> bool{
         true
     }
 }
-fn check_vec(func_data: &FunctionData, val: &Value) -> bool{
+fn check_vec(func_data: &FunctionData, map: &Ref<HashMap<Value, ValueData>>, val: &Value) -> bool{
     let dfg = func_data.dfg();
-    if let ValueKind::GetElemPtr(_) = dfg.value(val.clone()).kind(){
-        return false;
-    } else {
-        if let TypeKind::Pointer(point) = dfg.value(val.clone()).ty().kind(){
+    if let Some(value_data) = map.get(val){
+        if let TypeKind::Pointer(point) = value_data.ty().kind(){
             if let TypeKind::Array(_, _) = point.kind(){
                 return true;
             } else {
@@ -632,6 +630,22 @@ fn check_vec(func_data: &FunctionData, val: &Value) -> bool{
             }
         } else {
             return false;
+        }
+    } else {
+        if let ValueKind::GetElemPtr(_) = dfg.value(val.clone()).kind(){
+            return false;
+        } else if let ValueKind::GetPtr(_) = dfg.value(val.clone()).kind(){
+            return false;
+        } else{
+            if let TypeKind::Pointer(point) = dfg.value(val.clone()).ty().kind(){
+                if let TypeKind::Array(_, _) = point.kind(){
+                    return true;
+                } else {
+                    return false;
+                }
+            } else {
+                return false;
+            }
         }
     }
 }
@@ -687,7 +701,7 @@ impl ActiveAnalysis for Program{
                             define_value.insert(inst.clone());
                         }
                         ValueKind::Store(store) => {
-                            if !check_vec(func_data, &store.dest()){
+                            if !check_vec(func_data, &global_val, &store.dest()){
                                 define_value.insert(store.dest().clone());
                             }
                             // if !define_value.contains(&store.dest()) && !check_int(func_data,
@@ -752,6 +766,7 @@ impl ActiveAnalysis for Program{
                             if !define_value.contains(&get_elem_ptr.src()) && !check_global
                                 (&global_val, &get_elem_ptr.src())&& !check_int
                                 (func_data, &get_elem_ptr.src()) && !check_vec(func_data,
+                                                                               &global_val,
                                                                                &get_elem_ptr.src()){
                                 use_value.insert(get_elem_ptr.src().clone());
                             }
@@ -1065,7 +1080,16 @@ impl IntervalAnalysis for Program{
                                             }
                                             func_interval.get_mut(&store.dest()).unwrap().new_margin(bb, begin, end);
                                             func_interval.get_mut(&store.dest()).unwrap().insert(&bb, cnt);
-                                        } else {
+                                        } else if let ValueKind::GetPtr(_)= func_data.dfg().value
+                                        (store.dest()).kind(){
+                                            if !func_interval.contains_key(&store.dest()){
+                                                let mut interval = Interval::new();
+                                                interval.new_margin(bb.clone(), begin, end);
+                                                func_interval.insert(store.dest().clone(), interval);
+                                            }
+                                            func_interval.get_mut(&store.dest()).unwrap().new_margin(bb, begin, end);
+                                            func_interval.get_mut(&store.dest()).unwrap().insert(&bb, cnt);
+                                        }else {
                                             if !func_interval.contains_key(&store.dest()){
                                                 let mut interval = Interval::new();
                                                 interval.new_margin(bb.clone(), begin, end);
@@ -1099,7 +1123,8 @@ impl IntervalAnalysis for Program{
                                     }
                                 }
                                 ValueKind::Alloc(alloc) => {
-                                    if check_used(func_data, inst) && !check_vec(func_data, inst){
+                                    if check_used(func_data, inst) && !check_vec(func_data,&global_var,
+                                                                                 inst){
                                         if !func_interval.contains_key(inst){
                                             let mut interval = Interval::new();
                                             interval.new_margin(bb.clone(), begin, end);
@@ -1160,7 +1185,7 @@ impl IntervalAnalysis for Program{
                                                                                          end);
                                         func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
                                     }
-                                    if !check_vec(func_data, &get_elem_ptr.src()){
+                                    if !check_vec(func_data,&global_var, &get_elem_ptr.src()){
                                         if !func_interval.contains_key(&get_elem_ptr.src()){
                                             let mut interval = Interval::new();
                                             interval.new_margin(bb.clone(), begin, end);
