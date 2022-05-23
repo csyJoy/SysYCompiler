@@ -787,7 +787,7 @@ impl SplitGen for FunctionData {
             //     *s += &(ss + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg)+ &format!("\tlw t{}, 0(t{})\n", src_reg, src_reg));
             // } else {
             src_reg = format!("t{}", reg);
-            *s += &(ss + &format!("\tadd {}, sp, {}\n",reg, reg));
+            *s += &(ss + &format!("\tadd {}, sp, {}\n",src_reg, src_reg));
             // }
             // *s += &format!("\tlw t{}, {}(sp)\n",src_reg, offset);
         } else if let ValueKind::GetElemPtr(_) = &self.dfg().value(src).kind(){
