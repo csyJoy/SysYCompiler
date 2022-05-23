@@ -692,8 +692,8 @@ impl SplitGen for FunctionData {
         }
         if let ValueKind::Integer(i) =  self.dfg().value(idx).kind(){
             tmp_idx_reg = g.alloc_tmp_reg().unwrap();
-            idx_reg = format!("{}", tmp_idx_reg);
-            *s += &format!("\tli t{}, {}\n",idx_reg, i.value());
+            idx_reg = format!("t{}", tmp_idx_reg);
+            *s += &format!("\tli {}, {}\n",idx_reg, i.value());
         } else{
             let (idx_pos, begin_idx) = g.get_space(idx);
             if let StorePos::Stack(reg_name) = idx_pos{
@@ -1224,7 +1224,13 @@ impl SplitGen for FunctionData {
             } else {
                 unreachable!()
             }
-            *s += &format!("\tmv {}, {}\n", reg_idx, src_reg_idx);
+            if let ValueKind::GetPtr(_) = self.dfg().value(src_value).kind(){
+                *s += &format!("\tlw {}, 0({})\n", reg_idx, src_reg_idx);
+            } else if let ValueKind::GetElemPtr(_) = self.dfg().value(src_value).kind(){
+                *s += &format!("\tlw {}, 0({})\n", reg_idx, src_reg_idx);
+            } else {
+                *s += &format!("\tmv {}, {}\n", reg_idx, src_reg_idx);
+            }
         }
         if recover_i{
             *s += &g.return_reg(value);
