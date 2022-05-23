@@ -36,6 +36,17 @@ pub trait RegAlloctor{
     fn borrow_reg(&mut self, value: &Value) -> (String, String);
     fn bound_stack_space(&mut self, value: &Value, offset: i32);
 }
+pub fn check_stmt_used(func_data: &FunctionData, value: &Value) -> bool{
+    match func_data.dfg().value(value.clone()).kind(){
+        ValueKind::Alloc(alloc) => {
+            check_used(func_data, value)
+        },
+        ValueKind::Store(store) => {
+            check_used(func_data, &store.dest())
+        }
+        _ => false,
+    }
+}
 pub enum StoreType{
     Value, // single value or one dimension array
     Array,
@@ -553,7 +564,9 @@ impl GenerateAsm for FunctionData{
                     }
                     ValueKind::Store(store) => {
                         s += "# store gen \n";
-                        self.store_gen(&mut s, store, inst);
+                        if check_stmt_used(self, &inst){
+                            self.store_gen(&mut s, store, inst);
+                        }
                         s += "# store gen end\n\n";
                     }
                     ValueKind::Load(load) => {
@@ -563,7 +576,9 @@ impl GenerateAsm for FunctionData{
                     }
                     ValueKind::Alloc(alloc) => {
                         s += "# alloc gen\n";
-                        self.alloc_gen(&mut s, alloc, inst);
+                        if check_stmt_used(self, &inst){
+                            self.alloc_gen(&mut s, alloc, inst);
+                        }
                         s += "# alloc gen end\n\n";
                     }
                     ValueKind::Branch(branch) => {
@@ -1279,7 +1294,7 @@ impl SplitGen for FunctionData {
                     unreachable!()
                 }
             }
-        } else if  check_used(self, &dest){
+        } else if check_used(self, &dest){
             if let (dest_reg_pos, dest_before) = g.get_space(dest){
                 if let StorePos::Stack(reg_name) = dest_reg_pos{
                     dest_reg = reg_name;
