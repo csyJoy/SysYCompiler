@@ -1290,7 +1290,15 @@ impl SplitGen for FunctionData {
             }
             if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
                 let tmp = g.alloc_tmp_reg().unwrap();
-                *s += &format!("\tli t{}, {}\n\tmv {}, t{}\n", tmp, i.value(), dest_reg, tmp);
+                if let ValueKind::GetElemPtr(_) = self.dfg().value(dest).kind(){
+                    *s += &format!("\tli t{}, {}\n\tsw t{}, 0({})\n", tmp, i.value(), tmp,
+                                   dest_reg);
+                } else if let ValueKind::GetPtr(_) = self.dfg().value(dest).kind(){
+                    *s += &format!("\tli t{}, {}\n\tsw t{}, 0({})\n", tmp, i.value(), tmp,
+                                   dest_reg);
+                } else {
+                    *s += &format!("\tli t{}, {}\n\tmv {}, t{}\n", tmp, i.value(), dest_reg, tmp);
+                }
                 g.free_reg(tmp);
             } else {
                 //todo 传参数
@@ -1316,7 +1324,13 @@ impl SplitGen for FunctionData {
                     } else {
                         unreachable!()
                     }
-                    *s += &format!("\tmv {}, {}\n",dest_reg, value_reg);
+                    if let ValueKind::GetElemPtr(_) = self.dfg().value(dest).kind(){
+                        *s += &format!("\tmv {}, 0({})\n",value_reg, dest_reg);
+                    } else if let ValueKind::GetPtr(_) = self.dfg().value(dest).kind(){
+                        *s += &format!("\tsw {}, 0({})\n",value_reg, dest_reg);
+                    } else {
+                        *s += &format!("\tmv {}, {}\n",dest_reg, value_reg);
+                    }
                 }
             }
         }
