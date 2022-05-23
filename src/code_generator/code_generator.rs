@@ -2,6 +2,7 @@ use std::borrow::BorrowMut;
 use crate::optim::reg_alloc;
 // use koopa::ir::{BinaryOp, FunctionData, Program, Value, ValueKind};
 use koopa::ir::types::{ TypeKind, Type };
+use crate::optim::check_used;
 use koopa::ir::values::{Binary, Return, BinaryOp, Alloc, Store, Load, Branch, Jump, Call, GetElemPtr, Aggregate, GetPtr};
 use lazy_static::lazy_static;
 use std::sync::Mutex;
@@ -1278,58 +1279,60 @@ impl SplitGen for FunctionData {
                     unreachable!()
                 }
             }
-        } else if let (dest_reg_pos, dest_before) = g.get_space(dest){
-            if let StorePos::Stack(reg_name) = dest_reg_pos{
-                dest_reg = reg_name;
-                *s += &dest_before;
-                recover_dest = true;
-            } else if let StorePos::Reg(reg_name) = dest_reg_pos{
-                dest_reg = reg_name;
-            } else {
-                unreachable!()
-            }
-            if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
-                let tmp = g.alloc_tmp_reg().unwrap();
-                if let ValueKind::GetElemPtr(_) = self.dfg().value(dest).kind(){
-                    *s += &format!("\tli t{}, {}\n\tsw t{}, 0({})\n", tmp, i.value(), tmp,
-                                   dest_reg);
-                } else if let ValueKind::GetPtr(_) = self.dfg().value(dest).kind(){
-                    *s += &format!("\tli t{}, {}\n\tsw t{}, 0({})\n", tmp, i.value(), tmp,
-                                   dest_reg);
+        } else if  check_used(self, &dest){
+            if let (dest_reg_pos, dest_before) = g.get_space(dest){
+                if let StorePos::Stack(reg_name) = dest_reg_pos{
+                    dest_reg = reg_name;
+                    *s += &dest_before;
+                    recover_dest = true;
+                } else if let StorePos::Reg(reg_name) = dest_reg_pos{
+                    dest_reg = reg_name;
                 } else {
-                    *s += &format!("\tli t{}, {}\n\tmv {}, t{}\n", tmp, i.value(), dest_reg, tmp);
+                    unreachable!()
                 }
-                g.free_reg(tmp);
-            } else {
-                //todo 传参数
-                if let ValueKind::FuncArgRef(func_arg_ref) = self.dfg().value(value).kind() {
-                    if func_arg_ref.index() < 8 {
-                        *s += &(format!("\tmv {}, a{}\n", dest_reg, func_arg_ref.index()));
-                    } else {
-                        let mut k = now_sp_size.lock().unwrap();
-                        let sp_size = k.get_mut();
-                        let src_offset = *sp_size + 4 * (func_arg_ref.index() as i32 - 8);
-                        let (src_ss, src_reg) = g.get_offset_reg(src_offset);
-                        *s += &(src_ss + &format!("\tadd t{}, sp, t{}\n", src_reg, src_reg) +
-                            &format!("\tlw {}, 0(t{})\n", dest_reg, src_reg));
-                        g.free_reg(src_reg);
-                    }
-                } else if let (src_reg_pos, src_begin) = g.get_space(value){
-                    if let StorePos::Reg(reg_name) = src_reg_pos{
-                        value_reg = reg_name;
-                    } else if let StorePos::Stack(reg_name) = src_reg_pos{
-                        value_reg = reg_name;
-                        *s += &src_begin;
-                        recover_value = true;
-                    } else {
-                        unreachable!()
-                    }
+                if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
+                    let tmp = g.alloc_tmp_reg().unwrap();
                     if let ValueKind::GetElemPtr(_) = self.dfg().value(dest).kind(){
-                        *s += &format!("\tsw {}, 0({})\n",value_reg, dest_reg);
+                        *s += &format!("\tli t{}, {}\n\tsw t{}, 0({})\n", tmp, i.value(), tmp,
+                                       dest_reg);
                     } else if let ValueKind::GetPtr(_) = self.dfg().value(dest).kind(){
-                        *s += &format!("\tsw {}, 0({})\n",value_reg, dest_reg);
+                        *s += &format!("\tli t{}, {}\n\tsw t{}, 0({})\n", tmp, i.value(), tmp,
+                                       dest_reg);
                     } else {
-                        *s += &format!("\tmv {}, {}\n",dest_reg, value_reg);
+                        *s += &format!("\tli t{}, {}\n\tmv {}, t{}\n", tmp, i.value(), dest_reg, tmp);
+                    }
+                    g.free_reg(tmp);
+                } else {
+                    //todo 传参数
+                    if let ValueKind::FuncArgRef(func_arg_ref) = self.dfg().value(value).kind() {
+                        if func_arg_ref.index() < 8 {
+                            *s += &(format!("\tmv {}, a{}\n", dest_reg, func_arg_ref.index()));
+                        } else {
+                            let mut k = now_sp_size.lock().unwrap();
+                            let sp_size = k.get_mut();
+                            let src_offset = *sp_size + 4 * (func_arg_ref.index() as i32 - 8);
+                            let (src_ss, src_reg) = g.get_offset_reg(src_offset);
+                            *s += &(src_ss + &format!("\tadd t{}, sp, t{}\n", src_reg, src_reg) +
+                                &format!("\tlw {}, 0(t{})\n", dest_reg, src_reg));
+                            g.free_reg(src_reg);
+                        }
+                    } else if let (src_reg_pos, src_begin) = g.get_space(value){
+                        if let StorePos::Reg(reg_name) = src_reg_pos{
+                            value_reg = reg_name;
+                        } else if let StorePos::Stack(reg_name) = src_reg_pos{
+                            value_reg = reg_name;
+                            *s += &src_begin;
+                            recover_value = true;
+                        } else {
+                            unreachable!()
+                        }
+                        if let ValueKind::GetElemPtr(_) = self.dfg().value(dest).kind(){
+                            *s += &format!("\tsw {}, 0({})\n",value_reg, dest_reg);
+                        } else if let ValueKind::GetPtr(_) = self.dfg().value(dest).kind(){
+                            *s += &format!("\tsw {}, 0({})\n",value_reg, dest_reg);
+                        } else {
+                            *s += &format!("\tmv {}, {}\n",dest_reg, value_reg);
+                        }
                     }
                 }
             }

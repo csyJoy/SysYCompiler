@@ -613,13 +613,26 @@ fn check_global(map: &Ref<HashMap<Value, ValueData>>, val: &Value) -> bool{
         return false;
     }
 }
-fn check_used(func_data: &FunctionData, val: &Value) -> bool{
+pub fn check_used(func_data: &FunctionData, val: &Value) -> bool{
     let dfg = func_data.dfg();
-    return if dfg.value(val.clone()).used_by().is_empty() {
-        false
-    } else {
-        true
+    let used = dfg.value(val.clone()).used_by();
+    for used_elem in used{
+        if let ValueKind::Store(store) = dfg.value(used_elem.clone()).kind(){
+            if store.dest() == *val{
+                continue;
+            } else {
+                return true;
+            }
+        } else {
+            return true;
+        }
     }
+    return false;
+    // return if dfg.value(val.clone()).used_by().is_empty() {
+    //     false
+    // } else {
+    //     true
+    // }
 }
 fn check_vec(func_data: &FunctionData, map: &Ref<HashMap<Value, ValueData>>, val: &Value) -> bool{
     let dfg = func_data.dfg();
@@ -704,7 +717,8 @@ impl ActiveAnalysis for Program{
                             define_value.insert(inst.clone());
                         }
                         ValueKind::Store(store) => {
-                            if !check_vec(func_data, &global_val, &store.dest()){
+                            if !check_vec(func_data, &global_val, &store.dest()) && check_used
+                                (func_data, &store.dest()){
                                 define_value.insert(store.dest().clone());
                             }
                             // if !define_value.contains(&store.dest()) && !check_int(func_data,
@@ -734,7 +748,7 @@ impl ActiveAnalysis for Program{
                                 .kind(){
                                 if let TypeKind::Array(_, _) = typeid.kind(){
 
-                                } else {
+                                } else if check_used(func_data, &inst){
                                     define_value.insert(inst.clone());
                                 }
                             }
@@ -1073,7 +1087,8 @@ impl IntervalAnalysis for Program{
                                         (bb, begin, end);
                                         func_interval.get_mut(&store.value()).unwrap().insert(&bb, cnt);
                                     }
-                                    if !check_global(&global_var, &store.dest()){
+                                    if !check_global(&global_var, &store.dest()) && check_used
+                                        (func_data, &store.dest()){
                                         if let ValueKind::GetElemPtr(_)= func_data.dfg().value
                                         (store.dest()).kind(){
                                             if !func_interval.contains_key(&store.dest()){
