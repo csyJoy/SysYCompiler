@@ -6,7 +6,7 @@ use crate::optim::check_used;
 use koopa::ir::values::{Binary, Return, BinaryOp, Alloc, Store, Load, Branch, Jump, Call, GetElemPtr, Aggregate, GetPtr};
 use lazy_static::lazy_static;
 use std::sync::Mutex;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::cmp::min;
 use std::collections::{HashMap, HashSet, VecDeque};
 use koopa::ir::entities::{Value, Program, FunctionData, ValueKind, ValueData};
@@ -36,15 +36,16 @@ pub trait RegAlloctor{
     fn borrow_reg(&mut self, value: &Value) -> (String, String);
     fn bound_stack_space(&mut self, value: &Value, offset: i32);
 }
-pub fn check_stmt_used(func_data: &FunctionData, value: &Value) -> bool{
+pub fn check_stmt_used(func_data: &FunctionData, value: &Value, map: &Ref<HashMap<Value,
+    ValueData>>) -> bool{
     match func_data.dfg().value(value.clone()).kind(){
         ValueKind::Alloc(alloc) => {
-            check_used(func_data, value)
+            check_used(func_data, value, map)
         },
         ValueKind::Store(store) => {
-            check_used(func_data, &store.dest())
+            check_used(func_data, &store.dest(), map)
         }
-        _ => check_used(func_data, value),
+        _ => check_used(func_data, value, map),
     }
 }
 pub enum StoreType{
@@ -359,7 +360,7 @@ impl GenerateAsm for Program{
             let mut head = "\t.text\n".to_string();
             let mut func_def = "".to_string();
             head += &format!("\t.global {}\n", tmp);
-            func_def += &self.func(func).generate();
+            func_def += &self.func(func).generate(&values);
             s += &(head + &func_def);
         }
         s
@@ -483,10 +484,10 @@ fn save_and_recover_reg(set: &HashSet<i32>) -> (String, String){
     s
 }
 trait GenerateAsmFunc{
-    fn generate(&self, reg_allocation: &HashMap<Value, Option<i32>>) -> String;
+    fn generate(&self, global_var: &Ref<HashMap<Value, ValueData>>) -> String;
 }
-impl GenerateAsm for FunctionData{
-    fn generate(&self) -> String {
+impl GenerateAsmFunc for FunctionData{
+    fn generate(&self, global_var: &Ref<HashMap<Value, ValueData>>) -> String{
         let mut s = "".to_string();
         s += &format!("{}:\n", &self.name().to_string()[1..]);
         let caller;
@@ -559,15 +560,15 @@ impl GenerateAsm for FunctionData{
                         // let r = bin.rhs();
                         // self.dfg().value(l).kind()
                         s += "# bin gen\n";
-                        if check_stmt_used(self, &inst){
+                        if check_stmt_used(self, &inst, global_var){
                             self.bin_gen(&mut s, bin, inst);
                         }
                         s += "# bin gen end\n\n";
                     }
                     ValueKind::Store(store) => {
                         s += "# store gen \n";
-                        if check_stmt_used(self, &inst){
-                            self.store_gen(&mut s, store, inst);
+                        if check_stmt_used(self, &inst, global_var){
+                            self.store_gen(&mut s, store, inst, global_var);
                         }
                         s += "# store gen end\n\n";
                     }
@@ -578,7 +579,7 @@ impl GenerateAsm for FunctionData{
                     }
                     ValueKind::Alloc(alloc) => {
                         s += "# alloc gen\n";
-                        if check_stmt_used(self, &inst){
+                        if check_stmt_used(self, &inst, global_var){
                             self.alloc_gen(&mut s, alloc, inst);
                         }
                         s += "# alloc gen end\n\n";
@@ -645,7 +646,8 @@ trait SplitGen {
     fn bin_gen(&self, s: &mut String, bin: &Binary, value: Value);
     fn alloc_gen(&self, s: &mut String, alloc: &Alloc, value: Value);
     fn load_gen(&self, s: &mut String, alloc: &Load, value: Value);
-    fn store_gen(&self, s: &mut String, alloc: &Store, value: Value);
+    fn store_gen(&self, s: &mut String, alloc: &Store, value: Value, global_varable_ref:
+    &Ref<HashMap<Value, ValueData>>);
     fn branch_gen(&self, s: &mut String, branch: &Branch, value: Value);
     fn jump_gen(&self, s: &mut String, jump: &Jump, value: Value);
     fn call_gen(&self, s: &mut String, call: &Call, value: Value);
@@ -1258,7 +1260,8 @@ impl SplitGen for FunctionData {
         }
         // g.free_reg(reg_idx);
     }
-    fn store_gen(&self, s: &mut String, store: &Store, value: Value) {
+    fn store_gen(&self, s: &mut String, store: &Store, value: Value, global_varable_ref:
+    &Ref<HashMap<Value, ValueData>>) {
         let value = store.value();
         let dest = store.dest();
         let var = global_varable.lock().unwrap();
@@ -1296,7 +1299,7 @@ impl SplitGen for FunctionData {
                     unreachable!()
                 }
             }
-        } else if check_used(self, &dest){
+        } else if check_used(self, &dest, global_varable_ref){
             if let (dest_reg_pos, dest_before) = g.get_space(dest){
                 if let StorePos::Stack(reg_name) = dest_reg_pos{
                     dest_reg = reg_name;
