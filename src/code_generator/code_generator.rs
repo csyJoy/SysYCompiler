@@ -44,7 +44,7 @@ pub fn check_stmt_used(func_data: &FunctionData, value: &Value) -> bool{
         ValueKind::Store(store) => {
             check_used(func_data, &store.dest())
         }
-        _ => false,
+        _ => check_used(func_data, value),
     }
 }
 pub enum StoreType{
@@ -559,7 +559,9 @@ impl GenerateAsm for FunctionData{
                         // let r = bin.rhs();
                         // self.dfg().value(l).kind()
                         s += "# bin gen\n";
-                        self.bin_gen(&mut s, bin, inst);
+                        if check_stmt_used(self, &inst){
+                            self.bin_gen(&mut s, bin, inst);
+                        }
                         s += "# bin gen end\n\n";
                     }
                     ValueKind::Store(store) => {

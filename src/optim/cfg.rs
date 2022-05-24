@@ -718,7 +718,9 @@ impl ActiveAnalysis for Program{
                                 .rhs()) {
                                 use_value.insert(bin.rhs());
                             }
-                            define_value.insert(inst.clone());
+                            if check_used(func_data, &inst){
+                                define_value.insert(inst.clone());
+                            }
                         }
                         ValueKind::Store(store) => {
                             if !check_vec(func_data, &global_val, &store.dest()) && check_used
@@ -1070,14 +1072,16 @@ impl IntervalAnalysis for Program{
                                         (), begin, end);
                                         func_interval.get_mut(&bin.lhs()).unwrap().insert(&bb, cnt);
                                     }
-                                    if !func_interval.contains_key(inst){
-                                        let mut interval = Interval::new();
-                                        interval.new_margin(bb.clone(), begin, end);
-                                        func_interval.insert(*inst.clone(), interval);
+                                    if check_used(func_data, inst){
+                                        if !func_interval.contains_key(inst){
+                                            let mut interval = Interval::new();
+                                            interval.new_margin(bb.clone(), begin, end);
+                                            func_interval.insert(*inst.clone(), interval);
+                                        }
+                                        func_interval.get_mut(&inst).unwrap().new_margin(bb.clone
+                                        (), begin, end);
+                                        func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
                                     }
-                                    func_interval.get_mut(&inst).unwrap().new_margin(bb.clone
-                                    (), begin, end);
-                                    func_interval.get_mut(&inst).unwrap().cut(&bb, cnt);
                                 }
                                 ValueKind::Store(store) => {
                                     if !check_int(func_data, &store.value()) && !check_func_args
