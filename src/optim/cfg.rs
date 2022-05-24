@@ -619,7 +619,11 @@ pub fn check_used(func_data: &FunctionData, val: &Value) -> bool{
     for used_elem in used{
         if let ValueKind::Store(store) = dfg.value(used_elem.clone()).kind(){
             if store.dest() == *val{
-                continue;
+                if let ValueKind::Alloc(_) = func_data.dfg().value(val.clone()).kind(){
+                    continue;
+                } else {
+                    return true;
+                }
             } else {
                 return true;
             }
