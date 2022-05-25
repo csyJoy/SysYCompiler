@@ -390,7 +390,7 @@ fn calculate_and_allocate_space(this: &FunctionData, reg_allocator: &HashMap<Val
         if let Some(idx) = opt{
             vec.insert(*idx);
         } else {
-            *sum += 8;
+            *sum += 4;
         }
         (sum, vec)
     });
@@ -407,19 +407,20 @@ fn calculate_and_allocate_space(this: &FunctionData, reg_allocator: &HashMap<Val
                             }
                         }
                     }
+                } else if let ValueKind::GetElemPtr(_) = value_data.kind(){
+                    bits += 4;
                 }
             }
             if let ValueKind::Call(call) = value_data.kind(){
-                let  vec = call.args();
-                if vec.len() as i32 - 8 > arg_count_max{
-                    arg_count_max = vec.len() as i32 - 8 ;
+                let  arg_vec = call.args();
+                if arg_vec.len() as i32 - 8 > arg_count_max{
+                    arg_count_max = arg_vec.len() as i32 - 8 ;
                 }
                 caller = true;
             }
         }
     }
     bits += vec.len() as i32 * 4;
-    bits += bits;
     // for (_, node) in this.layout().bbs(){
     //     for &inst in node.insts().keys(){
     //         let value_data = this.dfg().value(inst);
@@ -509,7 +510,7 @@ impl GenerateAsmFunc for FunctionData{
             let (ss, reg) = m.get_offset_reg(sp - 4);
             s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg) +&format!("\tsw ra, 0(t{})\n", reg));
             m.free_reg(reg);
-            m.offset = offset * 4 + set.len() as i32 * 4;
+            m.offset = offset * 4;
             m.start_offset = offset * 4;
             // m.free_reg(mid_reg);
         } else if let Caller::Nocall((sp, offset, set)) = &caller{
@@ -520,7 +521,7 @@ impl GenerateAsmFunc for FunctionData{
             let (ss, reg) = m.get_offset_reg(*sp);
             s += &(ss + &format!("\tsub sp, sp, t{}\n", reg));
             m.free_reg(reg);
-            m.offset = offset * 4 + set.len() as i32 * 4;
+            m.offset = offset * 4;
             m.start_offset = offset * 4;
         } else {
             unreachable!()

@@ -2519,19 +2519,7 @@ impl InitVal{
         }
     }
 }
-impl InitVal{
-    fn get_global_definition(&self) -> String {
-        if let Some(a) = self.exp.eval_const(){
-            if let Value::Int(i) = a {
-                format!("{}", i)
-            } else {
-                "".to_string()
-            }
-        } else {
-            unreachable!()
-        }
-    }
-}
+
 
 impl GetKoopa for ConstDecl{
     type Output = String;
