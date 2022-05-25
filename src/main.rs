@@ -1,13 +1,10 @@
 extern crate koopa;
 
-use std::collections::HashSet;
 use lalrpop_util::lalrpop_mod;
 use std::env::args;
 use std::fs::read_to_string;
 use std::io::{Result, Write};
 use std::fs::File;
-use std::hash::Hash;
-use optim::ControlFlowGraph;
 
 
 mod code_generator;
@@ -16,7 +13,7 @@ mod optim;
 
 use front_end::parser::GetKoopa;
 use crate::code_generator::code_generator::GenerateAsm;
-use crate::optim::cfg::{ActiveAnalysis, BuildControlFlowGraph, IntervalAnalysis};
+use crate::optim::cfg::IntervalAnalysis;
 // 引用 lalrpop 生成的解析器
 // 因为我们刚刚创建了 sysy.lalrpop, 所以模块名是 sysy
 
@@ -39,18 +36,10 @@ fn try_main() -> Result<()> {
     args.next();
     let output = args.next().unwrap();
     let mut file = File::create(output).unwrap();
-
     // 读取输入文件
     let input = read_to_string(input)?;
-
-
     // 调用 lalrpop 生成的 parser 解析输入文件
     let ast = sysy::CompUnitParser::new().parse(&input).unwrap();
-    // println!("{:#?}", ast);
-    // 输出解析得到的 AST
-    // println!("{:#?}", ast);
-    // println!("{}", ir);
-
     if mode == "-koopa"{
         let ir = ast.get_koopa();
         file.write(ir.as_bytes());
@@ -59,20 +48,15 @@ fn try_main() -> Result<()> {
         println!("{}", ir);
         let driver = koopa::front::Driver::from(ir);
         let program = driver.generate_program().unwrap();
-        // println!("{:#?}", program.func_layout());
         let ir = program.generate();
         file.write(ir.as_bytes());
     } else if mode == "-perf"{
         let ir = ast.get_koopa();
-        file.write(ir.as_bytes());
+        println!("{}", ir);
         let driver = koopa::front::Driver::from(ir);
         let program = driver.generate_program().unwrap();
-        // println!("{:#?}", program.func_layout());
         let ir = program.generate();
-        // let (act,cfg) = program.active_analysis();
-        let tmp = program.get_interval();
-        // println!("{:#?}", act);
-        // println!("{:#?}", cfg);
+        file.write(ir.as_bytes());
     }
     Ok(())
 }

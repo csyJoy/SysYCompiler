@@ -1,8 +1,6 @@
 use std::collections::{HashMap, VecDeque};
-use std::hash::Hash;
-use koopa::ir::{Function, FunctionData, Value, ValueKind, Program};
+use koopa::ir::{Function, FunctionData, Value, Program};
 use crate::optim::cfg::{Interval, IntervalHandler};
-use lazy_static::lazy_static;
 
 struct RegAllocator{
     reg_pool: VecDeque<i32>,

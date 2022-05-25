@@ -1,9 +1,7 @@
 use std::borrow::BorrowMut;
-use crate::optim::reg_alloc;
-// use koopa::ir::{BinaryOp, FunctionData, Program, Value, ValueKind};
 use koopa::ir::types::{ TypeKind, Type };
 use crate::optim::check_used;
-use koopa::ir::values::{Binary, Return, BinaryOp, Alloc, Store, Load, Branch, Jump, Call, GetElemPtr, Aggregate, GetPtr};
+use koopa::ir::values::{Binary, Return, BinaryOp, Store, Load, Branch, Jump, Call, GetElemPtr, Aggregate, GetPtr};
 use lazy_static::lazy_static;
 use std::sync::Mutex;
 use std::cell::{Ref, RefCell};
@@ -12,9 +10,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use koopa::ir::entities::{Value, Program, FunctionData, ValueKind, ValueData};
 use koopa::ir::Function;
 use koopa::ir::ValueKind::Integer;
-use rand::Rng;
-use crate::{ActiveAnalysis, IntervalAnalysis};
+use crate::IntervalAnalysis;
 use crate::code_generator::code_generator::StorePos::Stack;
+use crate::code_generator::code_generator::StorePos::Reg;
 use crate::optim::reg_alloc::RegAlloc;
 
 pub trait GenerateAsm{
@@ -22,9 +20,9 @@ pub trait GenerateAsm{
 }
 pub enum RegType{
     T(i32),
+    #[warn(dead_code)]
     S(i32)
 }
-// todo 这里的allocator不是allocator，他只是一个item，之后可以在外面套一个真正的global allocator
 pub trait RegAlloctor{
     fn store_type_bound(&mut self, value: Value, store_type: StoreType);
     fn get_offset_reg(&mut self, offset: i32) -> (String, i32);
@@ -39,7 +37,7 @@ pub trait RegAlloctor{
 pub fn check_stmt_used(func_data: &FunctionData, value: &Value, map: &Ref<HashMap<Value,
     ValueData>>) -> bool{
     match func_data.dfg().value(value.clone()).kind(){
-        ValueKind::Alloc(alloc) => {
+        ValueKind::Alloc(_) => {
             check_used(func_data, value, map)
         },
         ValueKind::Store(store) => {
@@ -49,9 +47,11 @@ pub fn check_stmt_used(func_data: &FunctionData, value: &Value, map: &Ref<HashMa
     }
 }
 pub enum StoreType{
-    Value, // single value or one dimension array
+    #[warn(dead_code)]
+    Value,
+    #[warn(dead_code)]
     Array,
-    Point //the dimension of array
+    Point
 }
 pub enum StorePos{
     Reg(String),
@@ -74,7 +74,7 @@ impl GlobalRegAlloctor{
             v.push(i);
         }
         let mut queue  = VecDeque::new();
-        for i in (0..12) {
+        for i in 0..12 {
             queue.push_back(i);
         }
         GlobalRegAlloctor{ tmp_reg_pool: v, reg_allocation: HashMap::new(), stack_allocation:
@@ -91,9 +91,6 @@ impl GlobalRegAlloctor{
     }
 }
 impl RegAlloctor for GlobalRegAlloctor{
-    fn bound_stack_space(&mut self, value: &Value, offset: i32) {
-        self.stack_allocation.insert(value.clone(), offset);
-    }
     fn store_type_bound(&mut self, value: Value, store_type: StoreType){
         self.store_type.insert(value.clone(), store_type);
     }
@@ -146,13 +143,6 @@ impl RegAlloctor for GlobalRegAlloctor{
             Some(idx)
         }
     }
-    // fn bound_reg(&mut self, value: Value, idx: i32) -> Option<i32> {
-    //     self.map.insert(value, StorePos::Reg(idx));
-    //     Some(idx)
-    // }
-    // fn get_reg(&self, value: Value) -> Option<i32> {
-    //     Some(*self.map.get(&value).unwrap())
-    // }
     fn alloc_stack_space(&mut self, value: Value, size: i32){
         self.stack_allocation.insert(value, self.offset);
         self.offset += size;
@@ -172,15 +162,32 @@ impl RegAlloctor for GlobalRegAlloctor{
                                                              reg_idx) +
                 &format!("\tlw {}, 0(t{})\n", idx, reg_idx);
             self.free_reg(reg_idx);
-            (StorePos::Stack(format!("{}", idx)), now)
+            (Stack(format!("{}", idx)), now)
         } else if let None = self.reg_allocation.get(&value).unwrap(){ //这是为了解决第一次存储reg spill的数据
             self.alloc_stack_space(value, 4);
             self.get_space(value) // this branch will choose Some(offset)
         } else {
-            println!("{:#?}", value);
             unreachable!()
         }
-        // todo:如果stack_allocation中没有offset?
+    }
+    /// after return reg, make sure last stored reg value is wrote back to reg, return the load code
+    /// if the value doesn't borrow reg, do nothing
+    fn return_reg(&mut self, value: Value) -> String{
+        if let Some(deque) = self.borrowed_reg.get_mut(&value){
+            if let Some((RegType::T(idx), _)) = deque.pop_front(){
+                let store_offset  = self.stack_allocation.get(&value).unwrap();
+                let (store_before, store_idx) = self.get_offset_reg(*store_offset);
+                let now = store_before + &format!("\tadd t{}, sp, t{}\n\tsw t{}, 0(t{})\n",
+                                                          store_idx, store_idx, idx, store_idx);
+                self.free_reg(idx);
+                self.free_reg(store_idx);
+                now
+            } else {
+                unreachable!()
+            }
+        } else {
+            "".to_string()
+        }
     }
     /// before borrow reg, make sure before value is stored correctly, return the store code, and
     /// the reg idx
@@ -195,56 +202,10 @@ impl RegAlloctor for GlobalRegAlloctor{
             queue.push_front((RegType::T(idx), 0));
             self.borrowed_reg.insert(value.clone(), queue);
         }
-        //let borrowed_reg = self.have_borrowed.pop_front().unwrap();
-        // self.bound_space(value.clone(), 4);
-        // let now= format!("\tsw s{}, {}(sp)\n", borrowed_reg, self.start_offset + 4 *
-        //     borrowed_reg);
-        // if let Some(queue) = self.borrowed_reg.get_mut(value){
-        //     queue.push_front((borrowed_reg, self.start_offset + 4 *
-        //         borrowed_reg));
-        // } else {
-        //     let mut queue = VecDeque::new();
-        //     queue.push_front((borrowed_reg, self.start_offset + 4 *
-        //         borrowed_reg));
-        //     self.borrowed_reg.insert(value.clone(), queue);
-        // }
         (borrowed_reg, now)
     }
-    /// after return reg, make sure last stored reg value is wrote back to reg, return the load code
-    /// if the value doesn't borrow reg, do nothing
-    fn return_reg(&mut self, value: Value) -> String{
-        // self.free_reg()
-        if let Some(deque) = self.borrowed_reg.get_mut(&value){
-            if let Some((RegType::T(idx), offset)) = deque.pop_front(){
-                let store_offset  = self.stack_allocation.get(&value).unwrap();
-                let (store_before, store_idx) = self.get_offset_reg(*store_offset);
-                let now = store_before + &format!("\tadd t{}, sp, t{}\n\tsw t{}, 0(t{})\n",
-                                                          store_idx, store_idx, idx, store_idx);
-                self.free_reg(idx);
-                self.free_reg(store_idx);
-                now
-            } else {
-                unreachable!()
-            }
-        } else {
-            //todo: 为什么这里要""?
-            "".to_string()
-        }
-        // if let Some(deque) = self.borrowed_reg.get_mut(&value){
-        //     if let Some((reg, offset)) = deque.pop_front(){
-        //         let store_offset = self.stack_allocation.get(&value).unwrap();
-        //         let (store_before, store_idx) = self.get_offset_reg(*store_offset);
-        //         let now = store_before + &format!("\tadd t{}, sp, t{}\n\tsw s{}, 0(t{})\n",
-        //                                           store_idx, store_idx, reg, store_idx) + &format!("\tlw s{}, {}(sp)\n", reg, offset);
-        //         self.free_reg(store_idx);
-        //         self.have_borrowed.push_back(reg);
-        //         now
-        //     } else {
-        //         unreachable!()
-        //     }
-        // } else {
-        //     "".to_string()
-        // }
+    fn bound_stack_space(&mut self, value: &Value, offset: i32) {
+        self.stack_allocation.insert(value.clone(), offset);
     }
 }
 lazy_static!{
@@ -262,7 +223,7 @@ lazy_static!{
 fn gen_agg_init(agg: &Aggregate, values: HashMap<Value, ValueData>) -> String{
     let mut s = "".to_string();
     for value in agg.elems(){
-        if let ValueKind::Integer(ii) = values.get(value).unwrap().kind(){
+        if let Integer(ii) = values.get(value).unwrap().kind(){
             if ii.value() == 0{
                 s += &format!("\t.zero 4\n");
             } else {
@@ -271,7 +232,6 @@ fn gen_agg_init(agg: &Aggregate, values: HashMap<Value, ValueData>) -> String{
         } else if let ValueKind::Aggregate(agg1) = values.get(value).unwrap().kind(){
             s += &gen_agg_init(&agg1, values.clone());
         } else {
-            println!("{}", values.get(value).unwrap().ty());
             unreachable!();
         }
     }
@@ -282,7 +242,6 @@ impl GenerateAsm for Program{
         let mut s = "".to_string();
         let mut m = global_function_name.lock().unwrap();
         let mut t = global_function_type.lock().unwrap();
-        //todo: global var的初始化的值表示了左值的下表，不是一个真值
         let values = self.borrow_values();
         let vvalue = values.iter();
         s += "\t.data\n";
@@ -305,7 +264,7 @@ impl GenerateAsm for Program{
                 if let ValueKind::GlobalAlloc(g) = val_data.kind(){
                     let init_value = values.get(&g.init());
                     if let Some(i) = init_value{
-                        if let ValueKind::Integer(ii) = i.kind(){
+                        if let Integer(ii) = i.kind(){
                             if ii.value() == 0{
                                 s += &format!("\t.zero 4\n");
                             } else {
@@ -320,7 +279,6 @@ impl GenerateAsm for Program{
                                 s += &format!("\t.zero {}\n", i.ty().size());
                             }
                         } else {
-                            eprintln!("{:#?}", i.kind());
                             unreachable!()
                         }
                     } else {
@@ -421,46 +379,6 @@ fn calculate_and_allocate_space(this: &FunctionData, reg_allocator: &HashMap<Val
         }
     }
     bits += vec.len() as i32 * 4;
-    // for (_, node) in this.layout().bbs(){
-    //     for &inst in node.insts().keys(){
-    //         let value_data = this.dfg().value(inst);
-    //         let i32_type = Type::get_i32();
-    //         if !value_data.ty().is_unit(){
-    //             if let TypeKind::Pointer(b) = value_data.ty().kind(){
-    //                 if *b == i32_type{
-    //                     if let ValueKind::Alloc(_) = value_data.kind(){
-    //                         bits += 4;
-    //                     } else {
-    //                         bits += value_data.ty().size() as i32;
-    //                     }
-    //                 } else {
-    //                     if let ValueKind::Alloc(_) = value_data.kind(){
-    //                         if let TypeKind::Array(arr_type, arr_size) = b.kind(){
-    //                             bits += (*arr_size as i32) * arr_type.size() as i32;
-    //                         } else {
-    //                             bits += value_data.ty().size() as i32;
-    //                         }
-    //                     } else {
-    //                         bits += value_data.ty().size() as i32;
-    //                     }
-    //                 }
-    //             } else {
-    //                 if value_data.ty().is_i32(){
-    //                     bits += 4;
-    //                 } else {
-    //                     bits += value_data.ty().size() as i32;
-    //                 }
-    //             }
-    //         }
-    //         if let ValueKind::Call(call) = value_data.kind(){
-    //             let  vec = call.args();
-    //             if vec.len() as i32 - 8 > arg_count_max{
-    //                 arg_count_max = vec.len() as i32 - 8 ;
-    //             }
-    //             caller = true;
-    //         }
-    //     }
-    // }
     if caller{
         let mut m = now_sp_size.lock().unwrap();
         let sp = ((bits + 4 + (arg_count_max * 4) as i32 + 15) / 16) as i32 * 16;
@@ -512,7 +430,6 @@ impl GenerateAsmFunc for FunctionData{
             m.free_reg(reg);
             m.offset = offset * 4;
             m.start_offset = offset * 4;
-            // m.free_reg(mid_reg);
         } else if let Caller::Nocall((sp, offset, set)) = &caller{
             save_and_recover = save_and_recover_reg(set);
             let mut k = global_reg_allocator.lock().unwrap();
@@ -526,7 +443,6 @@ impl GenerateAsmFunc for FunctionData{
         } else {
             unreachable!()
         }
-        //todo: save the s_n reg
         s += &save_and_recover.0;
         for (&bb, node) in self.layout().bbs(){
             if let Some(data) = self.dfg().bbs().get(&bb){
@@ -545,21 +461,11 @@ impl GenerateAsmFunc for FunctionData{
                 let value_data = self.dfg().value(inst);
                 match value_data.kind(){
                     ValueKind::Return(ret) => {
-                        // println!("{:#?}", ret);
-                        // println!("{:#?}", self.dfg().value(ret.value().unwrap()));
-                        // println!("=============================================");
                         s += "# return gen\n";
                         self.return_gen(&mut s, ret);
                         s += "# return end\n\n"
                     }
                     ValueKind::Binary(bin) => {
-                        // println!("{:#?}", bin);
-                        // println!("{:#?}, {:#?}", self.dfg().value(bin.rhs()), self.dfg().value
-                        // (bin.lhs()));
-                        // println!("=============================================");
-                        // let l = bin.lhs();
-                        // let r = bin.rhs();
-                        // self.dfg().value(l).kind()
                         s += "# bin gen\n";
                         if check_stmt_used(self, &inst, global_var){
                             self.bin_gen(&mut s, bin, inst);
@@ -569,7 +475,7 @@ impl GenerateAsmFunc for FunctionData{
                     ValueKind::Store(store) => {
                         s += "# store gen \n";
                         if check_stmt_used(self, &inst, global_var){
-                            self.store_gen(&mut s, store, inst, global_var);
+                            self.store_gen(&mut s, store,  global_var);
                         }
                         s += "# store gen end\n\n";
                     }
@@ -578,21 +484,21 @@ impl GenerateAsmFunc for FunctionData{
                         self.load_gen(&mut s, load, inst);
                         s += "# load gen end\n\n";
                     }
-                    ValueKind::Alloc(alloc) => {
+                    ValueKind::Alloc(_) => {
                         s += "# alloc gen\n";
                         if check_stmt_used(self, &inst, global_var){
-                            self.alloc_gen(&mut s, alloc, inst);
+                            self.alloc_gen(inst);
                         }
                         s += "# alloc gen end\n\n";
                     }
                     ValueKind::Branch(branch) => {
                         s += "# branch gen\n";
-                        self.branch_gen(&mut s, branch, inst);
+                        self.branch_gen(&mut s, branch);
                         s += "# branch gen end\n\n";
                     }
                     ValueKind::Jump(jump) => {
                         s += "# jump gen\n";
-                        self.jump_gen(&mut s, jump, inst);
+                        self.jump_gen(&mut s, jump);
                         s += "# jump gen\n\n";
                     }
                     ValueKind::Call(call) => {
@@ -617,9 +523,7 @@ impl GenerateAsmFunc for FunctionData{
             let end_name = format!("%end_{}", name[1..].to_string());
             if let Some(data) = self.dfg().bbs().get(&bb){
                 if let Some(a) = &data.name(){
-                    // println!("{}",a);
                     if *a == end_name{
-                        //todo: recover the s_n reg
                         s += &save_and_recover.1;
                         if let Caller::Caller((sp, _, _)) = caller{
                             let mut k = global_reg_allocator.lock().unwrap();
@@ -645,343 +549,30 @@ impl GenerateAsmFunc for FunctionData{
 trait SplitGen {
     fn return_gen(&self, s: &mut String, ret: &Return);
     fn bin_gen(&self, s: &mut String, bin: &Binary, value: Value);
-    fn alloc_gen(&self, s: &mut String, alloc: &Alloc, value: Value);
+    fn alloc_gen(&self, value: Value);
     fn load_gen(&self, s: &mut String, alloc: &Load, value: Value);
-    fn store_gen(&self, s: &mut String, alloc: &Store, value: Value, global_varable_ref:
+    fn store_gen(&self, s: &mut String, alloc: &Store, global_varable_ref:
     &Ref<HashMap<Value, ValueData>>);
-    fn branch_gen(&self, s: &mut String, branch: &Branch, value: Value);
-    fn jump_gen(&self, s: &mut String, jump: &Jump, value: Value);
+    fn branch_gen(&self, s: &mut String, branch: &Branch);
+    fn jump_gen(&self, s: &mut String, jump: &Jump);
     fn call_gen(&self, s: &mut String, call: &Call, value: Value);
     fn get_elem_ptr_gen(&self, s: &mut String, get_elem_ptr: &GetElemPtr, value: Value);
     fn get_ptr(&self, s: &mut String, get_ptr: &GetPtr, value: Value);
 }
 impl SplitGen for FunctionData {
-    fn get_ptr(&self, s: &mut String, get_ptr: &GetPtr, value: Value){
-        let src = get_ptr.src();
-        let idx = get_ptr.index();
-        let mut m = global_reg_allocator.lock().unwrap();
-        let g = m.get_mut();
-        let mut ty_size = 0;
-        let mut src_reg;
-        let mut idx_reg;
-        let mut ptr_reg;
-        let mut tmp_src_reg = -1;
-        let mut tmp_idx_reg = -1;
-        let mut recover_src = false;
-        let mut recover_idx = false;
-        let mut recover_ptr = false;
-        let (src_reg_pos, src_begin) = g.get_space(src);
-        let (ptr_reg_pos, ptr_begin) = g.get_space(value);
-        if let StorePos::Stack(reg_name) = src_reg_pos{
-            src_reg = reg_name;
-            *s += &src_begin;
-            recover_src = true;
-        } else if let StorePos::Reg(reg_name) = src_reg_pos{
-            src_reg = reg_name;
-        } else {
-            let mut m = global_varable.lock().unwrap();
-            let k = m.get_mut(&src).unwrap();
-            tmp_src_reg = g.alloc_tmp_reg().unwrap();
-            src_reg = format!("t{}", tmp_src_reg);
-            *s += &format!("\tla {}, {}\n",src_reg, k[1..].to_string());
-        }
-        if let StorePos::Stack(reg_name) = ptr_reg_pos{
-            ptr_reg = reg_name;
-            *s += &ptr_begin;
-            recover_ptr = true;
-        } else if let StorePos::Reg(reg_name) = ptr_reg_pos{
-            ptr_reg = reg_name;
-        } else {
-            unreachable!()
-        }
-        // g.store_type_bound(value, StoreType::Point);
-        let var_type = global_variable_type.lock().unwrap();
-        if let Some((global_var, size)) = var_type.get(&src){
-            if  global_var.as_bytes()[0] == b'*'{
-                println!("this is a global point of array:{}, size is {}", global_var, size);
-                ty_size = *size;
-            }
-        } else {
-            if let TypeKind::Pointer(p) = self.dfg().value(src).ty().kind(){
-                if let TypeKind::Array(ty, size) = p.kind(){
-                    println!("this is a point of array:{}, the size is {}, inner type is {}", self.dfg().value(src).ty().to_string(), size, ty.size());
-                    ty_size = ty.size() as i32 * (*size as i32);
-                } else {
-                    ty_size = 4;
-                }
-            }
-        }
-        if let ValueKind::Integer(i) =  self.dfg().value(idx).kind(){
-            tmp_idx_reg = g.alloc_tmp_reg().unwrap();
-            idx_reg = format!("t{}", tmp_idx_reg);
-            *s += &format!("\tli {}, {}\n",idx_reg, i.value());
-        } else{
-            let (idx_pos, begin_idx) = g.get_space(idx);
-            if let StorePos::Stack(reg_name) = idx_pos{
-                idx_reg = reg_name;
-                recover_idx = true;
-                *s += &begin_idx;
-            } else if let StorePos::Reg(reg_name) = idx_pos{
-                idx_reg = reg_name;
-            } else {
-                unreachable!()
-            }
-        }
-        let type_size_reg = g.alloc_tmp_reg().unwrap();
-        *s += &format!("\tli t{}, {}\n", type_size_reg, ty_size);
-        *s += &format!("\tmul {}, {}, t{}\n",idx_reg, idx_reg, type_size_reg);
-        g.free_reg(type_size_reg);
-        *s += &format!("\tadd {}, {}, {}\n",ptr_reg, src_reg, idx_reg);
-        g.store_type_bound(value, StoreType::Point);
-        // g.free_reg(s0);
-        if recover_src{
-            *s += &g.return_reg(src);
-        }
-        if recover_ptr{
-            *s += &g.return_reg(value);
-        }
-        if recover_idx{
-            *s += &g.return_reg(idx);
-        }
-        if tmp_src_reg != -1{
-            g.free_reg(tmp_src_reg);
-        }
-        if tmp_idx_reg != -1{
-            g.free_reg(tmp_idx_reg);
-        }
-    }
-    fn get_elem_ptr_gen(&self, s: &mut String, get_elem_ptr: &GetElemPtr, value: Value){
-        let src = get_elem_ptr.src();
-        let idx = get_elem_ptr.index();
-        let mut idx_reg;
-        let mut src_reg;
-        let mut tmp_src_reg = -1;
-        let mut tmp_idx_reg = -1;
-        let mut m = global_reg_allocator.lock().unwrap();
-        let mut global_var = global_varable.lock().unwrap();
-        let g = m.get_mut();
-        let mut ty_size = 0;
-        let mut recover_src = false;
-        g.store_type_bound(value, StoreType::Point);
-        let var_type = global_variable_type.lock().unwrap();
-        if let Some((global_var, size)) = var_type.get(&src){
-            if  global_var.as_bytes()[0] == b'*'{
-                println!("this is a global point of array:{}, size is {}", global_var, size);
-                ty_size = *size;
-            }
-        } else {
-            if let TypeKind::Pointer(p) = self.dfg().value(src).ty().kind(){
-                if let TypeKind::Array(ty, size) = p.kind(){
-                    println!("this is a point of array, the size is {}, inner type is {}", size, ty.size());
-                    ty_size = ty.size() as i32;
-                }
-            }
-        }
-        let mut recover_idx = false;
-        if let ValueKind::Integer(i) =  self.dfg().value(idx).kind(){
-            tmp_idx_reg = g.alloc_tmp_reg().unwrap();
-            idx_reg = format!("t{}", tmp_idx_reg);
-            *s += &format!("\tli {}, {}\n",idx_reg, i.value());
-        } else{
-            let (idx_pos, begin_idx) = g.get_space(idx);
-            if let StorePos::Reg(reg_name) = idx_pos{
-                idx_reg = reg_name;
-            } else if let StorePos::Stack(reg_name) = idx_pos{
-                idx_reg = reg_name;
-                recover_idx = true;
-                *s += &begin_idx;
-            } else {
-                unreachable!()
-            }
-            // *s += &format!("\tlw t{}, {}(sp)\n",idx_reg, g.get_space(idx).unwrap());
-        }
-        let mut reg_out = -1;
-        if let Some(k) = global_var.get(&src){
-            tmp_src_reg = g.alloc_tmp_reg().unwrap();
-            src_reg = format!("t{}", tmp_src_reg);
-            *s += &format!("\tla {}, {}\n",src_reg, k[1..].to_string());
-        }else if let ValueKind::GetElemPtr(_) = &self.dfg().value(src).kind() {
-            let (src_pos, begin_src) = g.get_space(src.clone());
-            if let StorePos::Reg(reg_name) = src_pos {
-                src_reg = reg_name;
-            } else if let StorePos::Stack(reg_name) = src_pos {
-                src_reg = reg_name;
-                recover_src = true;
-                *s += &begin_src;
-            } else {
-                unreachable!()
-            }
-        }else if let ValueKind::GetPtr(_) = &self.dfg().value(src).kind() {
-            let (src_pos, begin_src) = g.get_space(src.clone());
-            if let StorePos::Reg(reg_name) = src_pos {
-                src_reg = reg_name;
-            } else if let StorePos::Stack(reg_name) = src_pos {
-                src_reg = reg_name;
-                recover_src = true;
-                *s += &begin_src;
-            } else {
-                unreachable!()
-            }
-        } else if let Some(offset) =  g.stack_allocation.get(&src){
-            let (ss, reg) = g.get_offset_reg(*offset);
-            reg_out = reg;
-            // if let StorePos::Stack(reg_name) = src_pos{
-            //     *s += &begin_src;
-            //     src_reg = reg_name;
-            // } else {
-            //     unreachable!()
-            // }
-            // if let StoreType::Point = g.store_type.get(&src).unwrap(){
-            //     *s += &(ss + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg)+ &format!("\tlw t{}, 0(t{})\n", src_reg, src_reg));
-            // } else {
-            src_reg = format!("t{}", reg);
-            *s += &(ss + &format!("\tadd {}, sp, {}\n",src_reg, src_reg));
-            // }
-            // *s += &format!("\tlw t{}, {}(sp)\n",src_reg, offset);
-        } else {
-            unreachable!()
-        }
-        //todo: 没有添加对大的type_size的特殊处理
-        let type_size_reg = g.alloc_tmp_reg().unwrap();
-        *s += &format!("\tli t{}, {}\n", type_size_reg, ty_size); //todo:对不同维度有不同的值，需要判断
-        *s += &format!("\tmul {}, {}, t{}\n",idx_reg, idx_reg, type_size_reg);
-        g.free_reg(type_size_reg);
-        let (ptr_pos, begin_ptr) = g.get_space(value);
-        let mut recover_ptr = false;
-        let mut ptr_reg;
-        if let StorePos::Stack(reg_name) = ptr_pos{
-            *s += &begin_ptr;
-            recover_ptr = true;
-            ptr_reg = reg_name;
-        } else if let StorePos::Reg(reg_name) = ptr_pos{
-            ptr_reg = reg_name;
-        } else {
-            unreachable!()
-        }
-        *s += &format!("\tadd {}, {}, {}\n",ptr_reg, src_reg, idx_reg);
-        if reg_out != -1{
-            g.free_reg(reg_out);
-        }
-        // g.bound_space(value, self.dfg().value(value).ty().size() as i32);
-        if recover_idx{
-            *s += &g.return_reg(idx);
-        }
-        if recover_ptr{
-            *s += &g.return_reg(value);
-        }
-        if recover_src{
-            *s += &g.return_reg(src);
-        }
-        if tmp_src_reg != -1{
-            g.free_reg(tmp_src_reg);
-        }
-        if tmp_idx_reg != -1{
-            g.free_reg(tmp_idx_reg);
-        }
-    }
-    //todo: 解决reg的问题
-    fn call_gen(&self, s: &mut String, call: &Call, value: Value) {
-        let arg_vec = call.args();
-        let mut len = arg_vec.len() as i32;
-        let mut m = global_reg_allocator.lock().unwrap();
-        let g = m.get_mut();
-        for i   in 0..min(len, 8){
-            let idx = i as usize;
-            if let ValueKind::Integer(int) = self.dfg().value(arg_vec[idx]).kind(){
-                *s += &format!("\tli a{}, {}\n", i, int.value());
-            } else {
-                let (arg_pos, beign_arg) = g.get_space(arg_vec[idx]);
-                let mut recover_arg = false;
-                let reg_idx;
-                if let StorePos::Reg(reg_name) = arg_pos{
-                    reg_idx = reg_name;
-                } else if let StorePos::Stack(reg_name) = arg_pos{
-                    reg_idx = reg_name;
-                    *s += &beign_arg;
-                    recover_arg = true;
-                } else{
-                    unreachable!()
-                }
-                *s += &(format!("\tmv a{}, {}\n", i, reg_idx));
-                if recover_arg{
-                    *s += &g.return_reg(arg_vec[idx]);
-                }
-            }
-        }
-        let mut idx = 8;
-        while len - 8 > 0{
-            let value = arg_vec[idx];
-            if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
-                let tmp = g.alloc_tmp_reg().unwrap();
-                let offset = ((idx - 8) * 4) as i32;
-                let (ss, reg) = g.get_offset_reg(offset);
-                *s += &(ss +&format!("\tadd t{}, sp, t{}\n",reg, reg)+ &(format!("\tli t{}, {}\n",tmp , i.value()) +  &format!("\tsw t{}, 0(t{})\
-                \n", tmp,  reg)));
-                g.free_reg(reg);
-                g.free_reg(tmp);
-            } else {
-                let (arg_pos, begin_pos) = g.get_space(value);
-                let mut reg_idx;
-                let mut recover_arg = false;
-                if let StorePos::Stack(reg_name) = arg_pos{
-                    reg_idx = reg_name;
-                    *s += &begin_pos;
-                    recover_arg = true;
-                } else if let StorePos::Reg(reg_name) = arg_pos{
-                    reg_idx = reg_name;
-                } else {
-                    unreachable!()
-                }
-                let offset = ((idx - 8) * 4) as i32;
-                let (ss, reg) = g.get_offset_reg(offset);
-                *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tsw {}, 0(t{})\n", reg_idx, reg));
-                if recover_arg{
-                    *s += &g.return_reg(value);
-                }
-                g.free_reg(reg);
-            }
-            len = len - 1;
-            idx = idx + 1;
-        }
-        let m = global_function_name.lock().unwrap();
-        *s += &format!("\tcall {}\n", m.get(&call.callee()).unwrap()[1..].to_string());
-        let t = global_function_type.lock().unwrap();
-        let a = t.get(&call.callee()).unwrap();
-        if a == "i32" && !self.dfg().value(value).used_by().is_empty(){
-            let (rst_idx, rst_begin) = g.get_space(value);
-            let reg;
-            let mut recover_rst = false;
-            if let StorePos::Stack(reg_name) = rst_idx{
-                reg = reg_name;
-                *s += &rst_begin;
-                recover_rst = true;
-            } else if let StorePos::Reg(reg_name) = rst_idx{
-                reg = reg_name;
-            } else {
-                unreachable!()
-            }
-            g.store_type_bound(value, StoreType::Value);
-            *s += &(format!("\tmv {}, a0\n", reg));
-            if recover_rst{
-                *s += &g.return_reg(value);
-            }
-        }
-    }
     fn return_gen(&self, s: &mut String, ret: &Return) {
         if let Some(val) = ret.value() {
             let a = self.dfg().value(val);
             let b = a.kind();
             match b {
-                ValueKind::Integer(i) =>
+                Integer(i) =>
                     *s += &format!("\tli a0, {}\n", i.value()),
                 _ =>{
                     let mut g = global_reg_allocator.lock().unwrap();
                     let r = g.borrow_mut().get_mut();
-                    // let offset = r.get_space(val).unwrap();
-                    // let (ss, reg) = r.get_offset_reg(offset);
                     let (idx, before) = r.get_space(val);
                     let mut recover_idx = false;
-                    if let StorePos::Stack(reg_name) = idx{
+                    if let Stack(reg_name) = idx{
                         *s += &before;
                         *s += &(format!("\tmv a0, {}\n", reg_name));
                         recover_idx = true;
@@ -992,8 +583,6 @@ impl SplitGen for FunctionData {
                     if recover_idx{
                         *s += &r.return_reg(val);
                     }
-                    // *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw a0, 0(t{})\n", reg));
-                    // r.free_reg(reg);
                 }
             }
         }
@@ -1001,14 +590,13 @@ impl SplitGen for FunctionData {
     fn bin_gen(&self, s: &mut String, bin: &Binary, value: Value) {
         let r_value = bin.rhs();
         let l_value = bin.lhs();
-        let mut r_s:String;
-        let mut l_s:String;
+        let r_s:String;
+        let l_s:String;
         let op = bin.op();
-        let mut bin_operation:String;
-        let mut idx;
+        let bin_operation:String;
+        let idx;
         let mut g = global_reg_allocator.lock().unwrap();
         let r = g.borrow_mut().get_mut();
-        let size = self.dfg().value(value).ty().size() as i32;
         r.store_type_bound(value, StoreType::Value);
         let mut tmp_r:i32 = 0;
         let mut tmp_l:i32 = 0;
@@ -1017,7 +605,7 @@ impl SplitGen for FunctionData {
         let mut recover_r = false;
         let mut recover_l = false;
         let mut recover_i = false;
-        if let ValueKind::Integer(i) = self.dfg().value(r_value).kind(){
+        if let Integer(i) = self.dfg().value(r_value).kind(){
             if i.value() == 0 {
                 r_s = format!("x0");
             } else {
@@ -1027,24 +615,18 @@ impl SplitGen for FunctionData {
                 r_is_integer = true;
             }
         } else {
-            // tmp_r = r.alloc_tmp_reg().unwrap();
-            // let offset = r.get_space(r_value).unwrap();
-            // let (ss, reg) = r.get_offset_reg(offset);
             let (idx, before) = r.get_space(r_value);
             if let StorePos::Reg(reg_name) = idx{
                 r_s = reg_name;
-            } else if let StorePos::Stack(reg_name) = idx{
+            } else if let Stack(reg_name) = idx{
                 recover_r = true;
                 *s += &before;
                 r_s = reg_name;
             } else {
                 unreachable!()
             }
-            // *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw t{}, 0(t{})\n", tmp_r, reg));
-            // r_s = format!("t{}", tmp_r);
-            // r.free_reg(reg);
         }
-        if let ValueKind::Integer(i) = self.dfg().value(l_value).kind(){
+        if let Integer(i) = self.dfg().value(l_value).kind(){
             if i.value() == 0{
                 l_s = format!("x0");
             } else {
@@ -1054,17 +636,10 @@ impl SplitGen for FunctionData {
                 l_is_integer = true;
             }
         } else {
-            // tmp_l = r.alloc_tmp_reg().unwrap();
-            // let offset = r.get_space(l_value).unwrap();
-            // let (ss, reg) = r.get_offset_reg(offset);
-            // *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw t{}, 0(t{})\n", tmp_l, reg));
-            // l_s = format!("t{}", tmp_l);
-            // r.free_reg(reg);
-            // r.free_reg(tmp_l);
             let (idx, before) = r.get_space(l_value);
-            if let StorePos::Reg(reg_name) = idx{
+            if let Reg(reg_name) = idx{
                 l_s = reg_name;
-            } else if let StorePos::Stack(reg_name) = idx{
+            } else if let Stack(reg_name) = idx{
                 recover_l = true;
                 *s += &before;
                 l_s = reg_name;
@@ -1072,13 +647,10 @@ impl SplitGen for FunctionData {
                 unreachable!()
             }
         }
-        //todo: 在get_space需要添加对None的支持
-
-        // idx = r.alloc_tmp_reg().unwrap();
         let (reg, before) = r.get_space(value);
-        if let StorePos::Reg(reg_name) = reg{
+        if let Reg(reg_name) = reg{
             idx = reg_name;
-        } else if let StorePos::Stack(reg_name) = reg{
+        } else if let Stack(reg_name) = reg{
             recover_i = true;
             idx = reg_name;
             *s += &before;
@@ -1158,7 +730,6 @@ impl SplitGen for FunctionData {
             }
             _ => bin_operation = "".to_string()
         }
-        // todo: recover the reg
         if recover_i{
             *s += &r.return_reg(value);
         }
@@ -1175,32 +746,50 @@ impl SplitGen for FunctionData {
         if r_is_integer{
             r.free_reg(tmp_r);
         }
-        // let mut offset = 0;
-        // offset = r.get_space(value).unwrap();
-        // let (ss, reg) = r.get_offset_reg(offset);
-        // *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tsw t{}, 0(t{})\n", idx, reg));
-        // r.free_reg(idx);
-        // r.free_reg(reg);
+    }
+    fn alloc_gen(&self, value: Value) {
+        let mut m = global_reg_allocator.lock().unwrap();
+        let g = m.get_mut();
+        let mut size = 0;
+        if let TypeKind::Pointer(type_id)= self.dfg().value(value).ty().kind(){
+            let i32_type = Type::get_i32();
+            if i32_type == *type_id{
+                size = 4;
+                g.store_type_bound(value, StoreType::Value);
+            } else {
+                if let TypeKind::Array(arr_type, arr_size) = type_id.kind(){
+                    size = *arr_size as i32 * arr_type.size() as i32;
+                    g.store_type_bound(value, StoreType::Value);
+                } else if let TypeKind::Pointer(_) = type_id.kind(){
+                    size = type_id.size() as i32;
+                    g.store_type_bound(value, StoreType::Value);
+                } else {
+                    unreachable!();
+                }
+            }
+            // if value is array or i32 or ptr which reg spill we should bound a value to it
+            let tmp = g.reg_allocation.get(&value);
+            if let None = tmp{
+                g.alloc_stack_space(value, size);
+            }
+        } else {
+            unreachable!();
+        }
     }
     fn load_gen(&self, s: &mut String, load: &Load, value: Value) {
         let src_value = load.src();
         let var = global_varable.lock().unwrap();
-        let mut offset = 0;
-        let mut reg_idx;
-        let mut src_reg_idx;
-        let size = self.dfg().value(value).ty().size() as i32;
+        let reg_idx;
+        let src_reg_idx;
         let mut m = global_reg_allocator.lock().unwrap();
         let g = m.get_mut();
-        // g.bound_space(value, size);
-        // g.store_type_bound(value, StoreType::Value);
-        // offset = g.get_space(value).unwrap();
         let mut recover_i = false;
         let mut recover_s = false;
         if !self.dfg().value(value).used_by().is_empty(){
             let (reg, before) = g.get_space(value);
             if let StorePos::Reg(reg_name) = reg{
                 reg_idx = reg_name;
-            } else if let StorePos::Stack(reg_name) = reg{
+            } else if let Stack(reg_name) = reg{
                 recover_i = true;
                 *s += &before;
                 reg_idx = reg_name;
@@ -1210,25 +799,6 @@ impl SplitGen for FunctionData {
         } else {
             return;
         }
-        // if let Some(src_offset) = g.get_space(src_value){
-        //     let (src_ss, src_reg) = g.get_offset_reg(src_offset);
-        //     let (ss, reg) = g.get_offset_reg(offset);
-        //     if let StoreType::Point = g.store_type.get(&src_value).unwrap(){
-        //         *s += &(src_ss + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg) + &(format!("\tlw t{}, 0(t{})\n",src_reg, src_reg) +&format!("\tlw t{}, 0(t{})\n", src_reg, src_reg) + &ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\t&get_elem_ptr.src(osw t{}, 0(t{})\n",
-        //                                                                                                                                                                                                   src_reg, reg)));
-        //     } else {
-        //         *s += &(src_ss + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg)+ &(format!("\tlw t{}, 0(t{})\n",src_reg, src_reg)  + &ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tsw t{}, 0(t{})\n",
-        //                                                                                             src_reg, reg)));
-        //     }
-        //     g.free_reg(reg);
-        //     g.free_reg(src_reg);
-        // } else if let Some(name) = var.get(&src_value){
-        //     let tmp_reg = g.alloc_tmp_reg().unwrap();
-        //     let (ss, reg) = g.get_offset_reg(offset);
-        //     *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tla t{}, {}\n\tlw t{}, 0(t{})\n\tsw t{}, 0(t{})\n",tmp_reg, name[1..] .to_string(), tmp_reg, tmp_reg,tmp_reg,reg));
-        //     g.free_reg(tmp_reg);
-        //     g.free_reg(reg);
-        // }
         if let Some(name) = var.get(&src_value){
             let tmp_reg = g.alloc_tmp_reg().unwrap();
             *s += &format!("\tla t{}, {}\n\tlw {}, 0(t{})\n",tmp_reg, name[1..].to_string(),
@@ -1238,7 +808,7 @@ impl SplitGen for FunctionData {
             let (src_reg, src_before) = g.get_space(src_value);
             if let StorePos::Reg(reg_name) = src_reg{
                 src_reg_idx = reg_name;
-            } else if let StorePos::Stack(reg_name) = src_reg{
+            } else if let Stack(reg_name) = src_reg{
                 recover_s = true;
                 *s += &src_before;
                 src_reg_idx = reg_name;
@@ -1259,9 +829,8 @@ impl SplitGen for FunctionData {
         if recover_s{
             *s += &g.return_reg(load.src());
         }
-        // g.free_reg(reg_idx);
     }
-    fn store_gen(&self, s: &mut String, store: &Store, value: Value, global_varable_ref:
+    fn store_gen(&self, s: &mut String, store: &Store, global_varable_ref:
     &Ref<HashMap<Value, ValueData>>) {
         let value = store.value();
         let dest = store.dest();
@@ -1273,7 +842,7 @@ impl SplitGen for FunctionData {
         let mut recover_value = false;
         let mut recover_dest = false;
         if let Some(name) = var.get(&dest){
-            if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
+            if let Integer(i) = self.dfg().value(value).kind(){
                 let tmp_reg = g.alloc_tmp_reg().unwrap();
                 let reg_idx = g.alloc_tmp_reg().unwrap();
                 *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &format!("\tla t{}, \
@@ -1281,28 +850,24 @@ impl SplitGen for FunctionData {
                 g.free_reg(tmp_reg);
                 g.free_reg(reg_idx);
             } else {
-                //todo 传参数
-                if let (src_reg_pos, src_begin) = g.get_space(value){
-                    if let StorePos::Reg(reg_name) = src_reg_pos{
-                        value_reg = reg_name;
-                    } else if let StorePos::Stack(reg_name) = src_reg_pos{
-                        value_reg = reg_name;
-                        *s += &src_begin;
-                        recover_value = true;
-                    } else {
-                        unreachable!()
-                    }
-                    let tmp = g.alloc_tmp_reg().unwrap();
-                    *s += &format!("\tla t{}, {}\n",tmp, name[1..].to_string());
-                    *s += &format!("\tsw {}, 0(t{})\n",value_reg, tmp);
-                    g.free_reg(tmp);
+                let (src_reg_pos, src_begin) = g.get_space(value);
+                if let Reg(reg_name) = src_reg_pos{
+                    value_reg = reg_name;
+                } else if let Stack(reg_name) = src_reg_pos{
+                    value_reg = reg_name;
+                    *s += &src_begin;
+                    recover_value = true;
                 } else {
                     unreachable!()
                 }
+                let tmp = g.alloc_tmp_reg().unwrap();
+                *s += &format!("\tla t{}, {}\n",tmp, name[1..].to_string());
+                *s += &format!("\tsw {}, 0(t{})\n",value_reg, tmp);
+                g.free_reg(tmp);
             }
         } else if check_used(self, &dest, global_varable_ref){
             if let (dest_reg_pos, dest_before) = g.get_space(dest){
-                if let StorePos::Stack(reg_name) = dest_reg_pos{
+                if let Stack(reg_name) = dest_reg_pos{
                     dest_reg = reg_name;
                     *s += &dest_before;
                     recover_dest = true;
@@ -1311,7 +876,7 @@ impl SplitGen for FunctionData {
                 } else {
                     unreachable!()
                 }
-                if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
+                if let Integer(i) = self.dfg().value(value).kind(){
                     let tmp = g.alloc_tmp_reg().unwrap();
                     if let ValueKind::GetElemPtr(_) = self.dfg().value(dest).kind(){
                         *s += &format!("\tli t{}, {}\n\tsw t{}, 0({})\n", tmp, i.value(), tmp,
@@ -1324,7 +889,6 @@ impl SplitGen for FunctionData {
                     }
                     g.free_reg(tmp);
                 } else {
-                    //todo 传参数
                     if let ValueKind::FuncArgRef(func_arg_ref) = self.dfg().value(value).kind() {
                         if func_arg_ref.index() < 8 {
                             *s += &(format!("\tmv {}, a{}\n", dest_reg, func_arg_ref.index()));
@@ -1340,7 +904,7 @@ impl SplitGen for FunctionData {
                     } else if let (src_reg_pos, src_begin) = g.get_space(value){
                         if let StorePos::Reg(reg_name) = src_reg_pos{
                             value_reg = reg_name;
-                        } else if let StorePos::Stack(reg_name) = src_reg_pos{
+                        } else if let Stack(reg_name) = src_reg_pos{
                             value_reg = reg_name;
                             *s += &src_begin;
                             recover_value = true;
@@ -1364,148 +928,22 @@ impl SplitGen for FunctionData {
         if recover_dest{
             *s += &g.return_reg(dest);
         }
-        // if let Some(offset) = g.get_space(dest){
-        //     if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
-        //         let (ss, reg)  = g.get_offset_reg(offset);
-        //         if let StoreType::Point = g.store_type.get(&dest).unwrap(){
-        //             let tmp = g.alloc_tmp_reg().unwrap();
-        //             *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw t{}, 0(t{})\
-        //         \n", tmp, reg) + &format!("\tsw t{}, 0(t{})\n", reg_idx, tmp));
-        //             //+&format!("\tadd t{}, sp, t{}\n", tmp, tmp)
-        //             g.free_reg(tmp);
-        //         } else {
-        //             *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tsw t{}, 0(t{})\
-        //         \n", reg_idx, reg));
-        //         }
-        //         g.free_reg(reg);
-        //     } else {
-        //         //todo 传参数
-        //         let ty = self.dfg().value(value).kind();
-        //         match ty{
-        //             ValueKind::FuncArgRef(func_arg_ref) => {
-        //                 if func_arg_ref.index() < 8{
-        //                     let (ss, reg) = g.get_offset_reg(offset);
-        //                     *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg) +  &format!("\tsw a{}, 0(t{})\n", func_arg_ref.index(), reg));
-        //                     g.free_reg(reg);
-        //                 } else {
-        //                     let mut k = now_sp_size.lock().unwrap();
-        //                     let sp_size = k.get_mut();
-        //                     let src_offset = *sp_size + 4 * (func_arg_ref.index() as i32 - 8);
-        //                     let (src_ss, src_reg) = g.get_offset_reg(src_offset);
-        //                     let (ss, reg) = g.get_offset_reg(offset);
-        //                     *s += &(src_ss + &ss  + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg)+&format!("\tlw t{}, 0(t{})\n\tsw t{}, 0(t{})\n",reg_idx, src_reg, reg_idx, reg));
-        //                     g.free_reg(reg);
-        //                     g.free_reg(src_reg);
-        //                 }
-        //             }
-        //             _ => {
-        //                 let src_offset = g.get_space(value).unwrap();
-        //                 let (ss, reg) = g.get_offset_reg(offset);
-        //                 let (src_ss, src_reg) = g.get_offset_reg(src_offset);
-        //                 if let StoreType::Point = g.store_type.get(&dest).unwrap() {
-        //                     *s += &(src_ss + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg)+ &format!("\tlw t{}, 0(t{})\n", src_reg, src_reg) + &ss  + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw t{}, 0(t{})\n", reg, reg) + &format!("\tsw t{}, 0(t{})\n", src_reg, reg));
-        //                 } else {
-        //                     *s += &(src_ss + &format!("\tadd t{}, sp, t{}\n",src_reg, src_reg)+ &format!("\tlw t{}, 0(t{})\n", src_reg, src_reg) + &ss  + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tsw t{}, 0(t{})\n", src_reg, reg));
-        //                 }
-        //                 g.free_reg(reg);
-        //                 g.free_reg(src_reg);
-        //             }
-        //         }
-        //     }
-        // } else if let Some(name) = var.get(&dest){
-        //     if let ValueKind::Integer(i) = self.dfg().value(value).kind(){
-        //         let tmp_reg = g.alloc_tmp_reg().unwrap();
-        //         *s += &(format!("\tli t{}, {}\n",reg_idx, i.value()) + &format!("\tla t{}, \
-        //         {}\n\tsw t{}, 0(t{})\n", tmp_reg, name[1..].to_string(), reg_idx, tmp_reg));
-        //         g.free_reg(tmp_reg);
-        //     } else {
-        //         //todo 传参数
-        //         let ty = self.dfg().value(value).kind();
-        //         match ty{
-        //             ValueKind::FuncArgRef(func_arg_ref) => {
-        //                 if func_arg_ref.index() < 8{
-        //                     let tmp = g.alloc_tmp_reg().unwrap();
-        //                     *s += &format!("\tla t{}, {}\n\tsw a{}, 0(t{})\n",tmp, name[1..].to_string() , func_arg_ref.index(), tmp);
-        //                     g.free_reg(tmp);
-        //                 } else {
-        //                     let tmp = g.alloc_tmp_reg().unwrap();
-        //                     let mut k = now_sp_size.lock().unwrap();
-        //                     let sp_size = k.get_mut();
-        //                     let offset = *sp_size + 4 * (func_arg_ref.index() as i32 - 8);
-        //                     let (ss, reg) = g.get_offset_reg(offset);
-        //                     *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg) + &format!("\tlw t{}, 0(t{})\n\tla t{}, {}\n\tsw t{}, 0(t{})\n", reg, reg,  tmp, name[1..].to_string(),reg, tmp));
-        //                     g.free_reg(tmp);
-        //                     g.free_reg(reg);
-        //                 }
-        //             }
-        //             _ => {
-        //                 let src_offset = g.get_space(value).unwrap();
-        //                 let tmp = g.alloc_tmp_reg().unwrap();
-        //                 let (ss, reg) = g.get_offset_reg(src_offset);
-        //                 *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw t{}, 0(t{})\n\tla t{}, {}\n",reg, reg,
-        //                                 tmp, name[1..].to_string()) + &format!("\tsw t{}, 0(t{})\n", reg, tmp));
-        //                 g.free_reg(tmp);
-        //                 g.free_reg(reg);
-        //             }
-        //         }
-        //     }
-        // }
     }
-    fn alloc_gen(&self, s: &mut String, alloc: &Alloc, value: Value) {
-        //todo: 对指针的处理
-        let mut m = global_reg_allocator.lock().unwrap();
-        let g = m.get_mut();
-        let mut size = 0;
-        if let TypeKind::Pointer(type_id)= self.dfg().value(value).ty().kind(){
-            let i32_type = Type::get_i32();
-            if i32_type == *type_id{
-                size = 4;
-                g.store_type_bound(value, StoreType::Value);
-            } else {
-                if let TypeKind::Array(arr_type, arr_size) = type_id.kind(){
-                    size = *arr_size as i32 * arr_type.size() as i32;
-                    g.store_type_bound(value, StoreType::Value);
-                } else if let TypeKind::Pointer(inner_type) = type_id.kind(){
-                    size = type_id.size() as i32;
-                    g.store_type_bound(value, StoreType::Value); //todo: change point into value
-                } else {
-                    unreachable!();
-                }
-            }
-            // if value is array or i32 or ptr which reg spill we should bound a value to it
-            let tmp = g.reg_allocation.get(&value);
-            if let None = tmp{
-                g.alloc_stack_space(value, size);
-            }
-        } else {
-            unreachable!();
-        }
-        // if self.dfg().value(value).ty().is_i32(){
-        //     size = 4;
-        // } else {
-        //     size = self.dfg().value(value).ty().size() as i32;
-        // }
-    }
-    fn branch_gen(&self, s: &mut String, branch: &Branch, value: Value) {
+    fn branch_gen(&self, s: &mut String, branch: &Branch) {
         let cond = branch.cond();
         let then_branch = branch.true_bb();
         let else_branch = branch.false_bb();
         let mut k = global_reg_allocator.lock().unwrap();
         let g = k.get_mut();
-        let mut reg_idx ;
+        let reg_idx ;
         let mut recover_cond = false;
-        // if let Some(offset) = g.borrow_mut().get_space(cond){
-        //     let (ss, reg) = g.get_offset_reg(offset);
-        //     *s +=  &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tlw t{}, 0(t{})\n",reg_idx, reg));
-        //     g.free_reg(reg);
-        // }
         if let Integer(i) = self.dfg().value(cond).kind(){
             let reg_idx_i32 = g.borrow_mut().alloc_tmp_reg().unwrap();
             reg_idx = format!("t{}", reg_idx_i32);
             *s += &format!("\tli {}, {}\n", reg_idx, i.value());
             g.borrow_mut().free_reg(reg_idx_i32);
         } else if let (reg, before) = g.get_space(cond){
-            if let StorePos::Stack(reg_name) = reg{
+            if let Stack(reg_name) = reg{
                 reg_idx = reg_name;
                 recover_cond = true;
                 *s += &before;
@@ -1537,13 +975,307 @@ impl SplitGen for FunctionData {
             *s += &g.return_reg(cond);
         }
     }
-    fn jump_gen(&self, s: &mut String, jump: &Jump, value: Value) {
+    fn jump_gen(&self, s: &mut String, jump: &Jump) {
         let target = jump.target();
         if let Some(bd) = self.dfg().bbs().get(&target){
             if let Some(name) = bd.name(){
                 let kk = name.to_string()[1..name.len()].to_string();
                 *s += &format!("\tj {}\n\n", kk);
             }
+        }
+    }
+    fn call_gen(&self, s: &mut String, call: &Call, value: Value) {
+        let arg_vec = call.args();
+        let mut len = arg_vec.len() as i32;
+        let mut m = global_reg_allocator.lock().unwrap();
+        let g = m.get_mut();
+        for i   in 0..min(len, 8){
+            let idx = i as usize;
+            if let Integer(int) = self.dfg().value(arg_vec[idx]).kind(){
+                *s += &format!("\tli a{}, {}\n", i, int.value());
+            } else {
+                let (arg_pos, beign_arg) = g.get_space(arg_vec[idx]);
+                let mut recover_arg = false;
+                let reg_idx;
+                if let StorePos::Reg(reg_name) = arg_pos{
+                    reg_idx = reg_name;
+                } else if let Stack(reg_name) = arg_pos{
+                    reg_idx = reg_name;
+                    *s += &beign_arg;
+                    recover_arg = true;
+                } else{
+                    unreachable!()
+                }
+                *s += &(format!("\tmv a{}, {}\n", i, reg_idx));
+                if recover_arg{
+                    *s += &g.return_reg(arg_vec[idx]);
+                }
+            }
+        }
+        let mut idx = 8;
+        while len - 8 > 0{
+            let value = arg_vec[idx];
+            if let Integer(i) = self.dfg().value(value).kind(){
+                let tmp = g.alloc_tmp_reg().unwrap();
+                let offset = ((idx - 8) * 4) as i32;
+                let (ss, reg) = g.get_offset_reg(offset);
+                *s += &(ss +&format!("\tadd t{}, sp, t{}\n",reg, reg)+ &(format!("\tli t{}, {}\n",tmp , i.value()) +  &format!("\tsw t{}, 0(t{})\
+                \n", tmp,  reg)));
+                g.free_reg(reg);
+                g.free_reg(tmp);
+            } else {
+                let (arg_pos, begin_pos) = g.get_space(value);
+                let reg_idx;
+                let mut recover_arg = false;
+                if let Stack(reg_name) = arg_pos{
+                    reg_idx = reg_name;
+                    *s += &begin_pos;
+                    recover_arg = true;
+                } else if let StorePos::Reg(reg_name) = arg_pos{
+                    reg_idx = reg_name;
+                } else {
+                    unreachable!()
+                }
+                let offset = ((idx - 8) * 4) as i32;
+                let (ss, reg) = g.get_offset_reg(offset);
+                *s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg)+ &format!("\tsw {}, 0(t{})\n", reg_idx, reg));
+                if recover_arg{
+                    *s += &g.return_reg(value);
+                }
+                g.free_reg(reg);
+            }
+            len = len - 1;
+            idx = idx + 1;
+        }
+        let m = global_function_name.lock().unwrap();
+        *s += &format!("\tcall {}\n", m.get(&call.callee()).unwrap()[1..].to_string());
+        let t = global_function_type.lock().unwrap();
+        let a = t.get(&call.callee()).unwrap();
+        if a == "i32" && !self.dfg().value(value).used_by().is_empty(){
+            let (rst_idx, rst_begin) = g.get_space(value);
+            let reg;
+            let mut recover_rst = false;
+            if let Stack(reg_name) = rst_idx{
+                reg = reg_name;
+                *s += &rst_begin;
+                recover_rst = true;
+            } else if let StorePos::Reg(reg_name) = rst_idx{
+                reg = reg_name;
+            } else {
+                unreachable!()
+            }
+            g.store_type_bound(value, StoreType::Value);
+            *s += &(format!("\tmv {}, a0\n", reg));
+            if recover_rst{
+                *s += &g.return_reg(value);
+            }
+        }
+    }
+    fn get_elem_ptr_gen(&self, s: &mut String, get_elem_ptr: &GetElemPtr, value: Value){
+        let src = get_elem_ptr.src();
+        let idx = get_elem_ptr.index();
+        let idx_reg;
+        let src_reg;
+        let mut tmp_src_reg = -1;
+        let mut tmp_idx_reg = -1;
+        let mut m = global_reg_allocator.lock().unwrap();
+        let mut global_var = global_varable.lock().unwrap();
+        let g = m.get_mut();
+        let mut ty_size = 0;
+        let mut recover_src = false;
+        g.store_type_bound(value, StoreType::Point);
+        let var_type = global_variable_type.lock().unwrap();
+        if let Some((global_var, size)) = var_type.get(&src){
+            if  global_var.as_bytes()[0] == b'*'{
+                ty_size = *size;
+            }
+        } else {
+            if let TypeKind::Pointer(p) = self.dfg().value(src).ty().kind(){
+                if let TypeKind::Array(ty, size) = p.kind(){
+                    ty_size = ty.size() as i32;
+                }
+            }
+        }
+        let mut recover_idx = false;
+        if let Integer(i) =  self.dfg().value(idx).kind(){
+            tmp_idx_reg = g.alloc_tmp_reg().unwrap();
+            idx_reg = format!("t{}", tmp_idx_reg);
+            *s += &format!("\tli {}, {}\n",idx_reg, i.value());
+        } else{
+            let (idx_pos, begin_idx) = g.get_space(idx);
+            if let StorePos::Reg(reg_name) = idx_pos{
+                idx_reg = reg_name;
+            } else if let Stack(reg_name) = idx_pos{
+                idx_reg = reg_name;
+                recover_idx = true;
+                *s += &begin_idx;
+            } else {
+                unreachable!()
+            }
+        }
+        let mut reg_out = -1;
+        if let Some(k) = global_var.get(&src){
+            tmp_src_reg = g.alloc_tmp_reg().unwrap();
+            src_reg = format!("t{}", tmp_src_reg);
+            *s += &format!("\tla {}, {}\n",src_reg, k[1..].to_string());
+        }else if let ValueKind::GetElemPtr(_) = &self.dfg().value(src).kind() {
+            let (src_pos, begin_src) = g.get_space(src.clone());
+            if let StorePos::Reg(reg_name) = src_pos {
+                src_reg = reg_name;
+            } else if let Stack(reg_name) = src_pos {
+                src_reg = reg_name;
+                recover_src = true;
+                *s += &begin_src;
+            } else {
+                unreachable!()
+            }
+        }else if let ValueKind::GetPtr(_) = &self.dfg().value(src).kind() {
+            let (src_pos, begin_src) = g.get_space(src.clone());
+            if let StorePos::Reg(reg_name) = src_pos {
+                src_reg = reg_name;
+            } else if let Stack(reg_name) = src_pos {
+                src_reg = reg_name;
+                recover_src = true;
+                *s += &begin_src;
+            } else {
+                unreachable!()
+            }
+        } else if let Some(offset) =  g.stack_allocation.get(&src){
+            let (ss, reg) = g.get_offset_reg(*offset);
+            reg_out = reg;
+            src_reg = format!("t{}", reg);
+            *s += &(ss + &format!("\tadd {}, sp, {}\n",src_reg, src_reg));
+        } else {
+            unreachable!()
+        }
+        let type_size_reg = g.alloc_tmp_reg().unwrap();
+        *s += &format!("\tli t{}, {}\n", type_size_reg, ty_size);
+        *s += &format!("\tmul {}, {}, t{}\n",idx_reg, idx_reg, type_size_reg);
+        g.free_reg(type_size_reg);
+        let (ptr_pos, begin_ptr) = g.get_space(value);
+        let mut recover_ptr = false;
+        let ptr_reg;
+        if let Stack(reg_name) = ptr_pos{
+            *s += &begin_ptr;
+            recover_ptr = true;
+            ptr_reg = reg_name;
+        } else if let StorePos::Reg(reg_name) = ptr_pos{
+            ptr_reg = reg_name;
+        } else {
+            unreachable!()
+        }
+        *s += &format!("\tadd {}, {}, {}\n",ptr_reg, src_reg, idx_reg);
+        if reg_out != -1{
+            g.free_reg(reg_out);
+        }
+        if recover_idx{
+            *s += &g.return_reg(idx);
+        }
+        if recover_ptr{
+            *s += &g.return_reg(value);
+        }
+        if recover_src{
+            *s += &g.return_reg(src);
+        }
+        if tmp_src_reg != -1{
+            g.free_reg(tmp_src_reg);
+        }
+        if tmp_idx_reg != -1{
+            g.free_reg(tmp_idx_reg);
+        }
+    }
+    fn get_ptr(&self, s: &mut String, get_ptr: &GetPtr, value: Value){
+        let src = get_ptr.src();
+        let idx = get_ptr.index();
+        let mut m = global_reg_allocator.lock().unwrap();
+        let g = m.get_mut();
+        let ty_size;
+        let src_reg;
+        let idx_reg;
+        let ptr_reg;
+        let mut tmp_src_reg = -1;
+        let mut tmp_idx_reg = -1;
+        let mut recover_src = false;
+        let mut recover_idx = false;
+        let mut recover_ptr = false;
+        let (src_reg_pos, src_begin) = g.get_space(src);
+        let (ptr_reg_pos, ptr_begin) = g.get_space(value);
+        if let Stack(reg_name) = src_reg_pos{
+            src_reg = reg_name;
+            *s += &src_begin;
+            recover_src = true;
+        } else if let StorePos::Reg(reg_name) = src_reg_pos{
+            src_reg = reg_name;
+        } else {
+            let mut m = global_varable.lock().unwrap();
+            let k = m.get_mut(&src).unwrap();
+            tmp_src_reg = g.alloc_tmp_reg().unwrap();
+            src_reg = format!("t{}", tmp_src_reg);
+            *s += &format!("\tla {}, {}\n",src_reg, k[1..].to_string());
+        }
+        if let Stack(reg_name) = ptr_reg_pos{
+            ptr_reg = reg_name;
+            *s += &ptr_begin;
+            recover_ptr = true;
+        } else if let StorePos::Reg(reg_name) = ptr_reg_pos{
+            ptr_reg = reg_name;
+        } else {
+            unreachable!()
+        }
+        let var_type = global_variable_type.lock().unwrap();
+        if let Some((global_var, size)) = var_type.get(&src){
+            if  global_var.as_bytes()[0] == b'*'{
+                ty_size = *size;
+            } else {
+                unreachable!()
+            }
+        } else {
+            if let TypeKind::Pointer(p) = self.dfg().value(src).ty().kind(){
+                if let TypeKind::Array(ty, size) = p.kind(){
+                    ty_size = ty.size() as i32 * (*size as i32);
+                } else {
+                    ty_size = 4;
+                }
+            } else {
+                unreachable!()
+            }
+        }
+        if let Integer(i) =  self.dfg().value(idx).kind(){
+            tmp_idx_reg = g.alloc_tmp_reg().unwrap();
+            idx_reg = format!("t{}", tmp_idx_reg);
+            *s += &format!("\tli {}, {}\n",idx_reg, i.value());
+        } else{
+            let (idx_pos, begin_idx) = g.get_space(idx);
+            if let Stack(reg_name) = idx_pos{
+                idx_reg = reg_name;
+                recover_idx = true;
+                *s += &begin_idx;
+            } else if let StorePos::Reg(reg_name) = idx_pos{
+                idx_reg = reg_name;
+            } else {
+                unreachable!()
+            }
+        }
+        let type_size_reg = g.alloc_tmp_reg().unwrap();
+        *s += &format!("\tli t{}, {}\n", type_size_reg, ty_size);
+        *s += &format!("\tmul {}, {}, t{}\n",idx_reg, idx_reg, type_size_reg);
+        g.free_reg(type_size_reg);
+        *s += &format!("\tadd {}, {}, {}\n",ptr_reg, src_reg, idx_reg);
+        g.store_type_bound(value, StoreType::Point);
+        if recover_src{
+            *s += &g.return_reg(src);
+        }
+        if recover_ptr{
+            *s += &g.return_reg(value);
+        }
+        if recover_idx{
+            *s += &g.return_reg(idx);
+        }
+        if tmp_src_reg != -1{
+            g.free_reg(tmp_src_reg);
+        }
+        if tmp_idx_reg != -1{
+            g.free_reg(tmp_idx_reg);
         }
     }
 }

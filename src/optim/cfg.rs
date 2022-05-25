@@ -1,6 +1,4 @@
-use std::any::Any;
-use std::borrow::BorrowMut;
-use std::cell::{Cell, Ref};
+use std::cell::Ref;
 use std::cmp::{Ordering, Reverse};
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::collections::hash_map::DefaultHasher;
@@ -9,7 +7,6 @@ use std::hash::{Hash, Hasher};
 use koopa::ir::{BasicBlock, Function, FunctionData, Program, Type, TypeKind, Value};
 use koopa::ir::entities::ValueData;
 use koopa::ir::ValueKind;
-use priority_queue::PriorityQueue;
 
 #[derive(Debug)]
 pub struct ControlFlowGraph{
@@ -40,75 +37,6 @@ impl CfgInner{
     }
     fn attach_with_father_node(&mut self, father: BasicBlock){
         self.father.push(Some(father));
-    }
-    fn get_define_and_use(&self, func_data: &FunctionData) -> (HashSet<Value>, HashSet<Value>){
-        if let Some(bbn) = func_data.layout().bbs().node(&self.code.unwrap()){
-            let mut define_value:HashSet<Value> = HashSet::new();
-            let mut use_value:HashSet<Value> = HashSet::new();
-            for inst in bbn.insts().keys(){
-                let value_data = func_data.dfg().value(*inst);
-                match value_data.kind(){
-                    ValueKind::Return(ret) => {
-                        // println!("{:#?}", ret);
-                        // println!("{:#?}", self.dfg().value(ret.value().unwrap()));
-                        // println!("=============================================");
-                        if let Some(val) = ret.value(){
-                            if define_value.contains(&val){
-                                use_value.insert(val.clone());
-                            }
-                        }
-                    }
-                    ValueKind::Binary(bin) => {
-                        if define_value.contains(&bin.lhs()){
-                            use_value.insert(bin.lhs());
-                        }
-                        if define_value.contains(&bin.rhs()){
-                            use_value.insert(bin.rhs());
-                        }
-                        define_value.insert(inst.clone());
-                    }
-                    ValueKind::Store(store) => {
-                    }
-                    ValueKind::Load(load) => {
-                        define_value.insert(inst.clone());
-                    }
-                    ValueKind::Alloc(alloc) =>{
-                        define_value.insert(inst.clone());
-                    }
-                    ValueKind::Branch(branch) => {
-                        if define_value.contains(&branch.cond()){
-                            use_value.insert(branch.cond().clone());
-                        }
-                    }
-                    ValueKind::Jump(jump) => {
-                    }
-                    ValueKind::Call(call) => {
-                    }
-                    ValueKind::GetElemPtr(get_elem_ptr) => {
-                        define_value.insert(inst.clone());
-                        if define_value.contains(&get_elem_ptr.src()){
-                            use_value.insert(get_elem_ptr.src().clone());
-                        }
-                        if define_value.contains(&get_elem_ptr.index()){
-                            use_value.insert(get_elem_ptr.index().clone());
-                        }
-                    }
-                    ValueKind::GetPtr(get_ptr) => {
-                        define_value.insert(inst.clone());
-                        if define_value.contains(&get_ptr.index()){
-                            use_value.insert(get_ptr.src().clone());
-                        }
-                        if define_value.contains(&get_ptr.index()){
-                            use_value.insert(get_ptr.index().clone());
-                        }
-                    }
-                    _ => unreachable!(),
-                }
-            }
-            (define_value, use_value)
-        } else {
-            unreachable!()
-        }
     }
 }
 #[derive(Debug)]
@@ -233,7 +161,7 @@ impl ControlFlowGraph {
     fn flatten_back<'a>(&self, now_cfg_inner: &CfgInner, queue: &'a mut VecDeque<BasicBlock>,
                        visited:
     &mut HashMap<BBType, bool>){
-        if(visited.is_empty()){
+        if visited.is_empty(){
             visited.insert(BBType::Enter, false);
             visited.insert(BBType::Exit, false);
             let mut queue = VecDeque::new();
@@ -280,7 +208,7 @@ impl ControlFlowGraph {
     }
     fn flatten<'a>(&self, now_cfg_inner: &CfgInner, queue: &'a mut VecDeque<BasicBlock>, visited:
     &mut HashMap<BBType, bool>){
-        if(visited.is_empty()){
+        if visited.is_empty(){
             visited.insert(BBType::Enter, false);
             visited.insert(BBType::Exit, false);
             let mut queue = VecDeque::new();
@@ -326,54 +254,16 @@ impl ControlFlowGraph {
         }
     }
 }
-impl ControlFlowGraph{
-    fn get_all_defines_and_uses(&self, func_data: &FunctionData) -> HashMap<BasicBlock, (HashSet<Value>, HashSet<Value>)>{
-        let begin = &self.enter;
-        let mut defines_and_uses: HashMap<BasicBlock, (HashSet<Value>, HashSet<Value>)> =
-            HashMap::new();
-        for i in &begin.son{
-            if let Some(bb) =  i{
-                if let Some(a) = self.other.get(&bb){
-                    let result = a.get_define_and_use(func_data);
-                    defines_and_uses.insert(bb.clone(), result);
-                } else {
-                    unreachable!()
-                }
-            } else {
-                unreachable!()
-            }
-        }
-        defines_and_uses
-    }
-}
 /// this is function use out[B] and get In[B]
 fn get_in<'a>(out: &'a mut HashSet<Value>, define_value: &HashSet<Value>, use_value:
-&HashSet<Value>) -> (&'a HashSet<Value>, bool) {
-    let mut changed = false;
-    let mut define_set:HashSet<Value> = HashSet::new();
-    let mut use_set:HashSet<Value> = HashSet::new();
-    println!("define set len: {}", define_value.len());
-    println!("use set len: {}", use_value.len());
+&HashSet<Value>) -> &'a HashSet<Value> {
     for val in define_value{
-        let result = out.remove(val);
-        // if result {
-        //     define_set.insert(val.clone());
-        // }
+        out.remove(val);
     }
     for val in use_value{
-        let result = out.insert(val.clone());
-        // if result {
-        //     use_set.insert(val.clone());
-        // }
+        out.insert(val.clone());
     }
-    // let tmp1 = use_set.difference(&define_set);
-    // let tmp2 = define_set.difference(&use_set);
-    // let tmp1 = tmp1.collect::<HashSet<&Value>>();
-    // let tmp2 = tmp2.collect::<HashSet<&Value>>();
-    // if !tmp1.is_empty() || !tmp2.is_empty(){
-    //     changed = true;
-    // }
-    (out, false)
+    out
 }
 /// this function merge all the son's In[B] and get self Out[B]
 fn merge_in(in_vec: &Vec<HashSet<Value>>) -> HashSet<Value>{
@@ -412,10 +302,6 @@ fn get_in_and_out(cfg: &ControlFlowGraph, define_and_use: &HashMap<BasicBlock, (
         count += 1;
         for i in 0..flatten.len(){
             let now_bb = flatten.get(i).unwrap();
-            let now_bb_data = func_data.dfg().bbs().get(&now_bb).unwrap();
-            if let Some(name) = now_bb_data.name(){
-                println!("{}", name);
-            }
             let now_cfg = cfg.other.get(&now_bb).unwrap();
             let mut vec: Vec<HashSet<Value>> = Vec::new();
             for son in &now_cfg.son{
@@ -439,156 +325,16 @@ fn get_in_and_out(cfg: &ControlFlowGraph, define_and_use: &HashMap<BasicBlock, (
             bb_out.remove(&BBType::Other(now_bb.clone()));
             bb_out.insert(BBType::Other(now_bb.clone()), b_out.clone());
             let (define_value, use_value) = define_and_use.get(&now_bb).unwrap();
-            let (b_in, result) = get_in(&mut b_out, define_value, use_value);
+            let b_in= get_in(&mut b_out, define_value, use_value);
             bb_in.remove(&BBType::Other(now_bb.clone()));
             bb_in.insert(BBType::Other(now_bb.clone()), b_in.clone());
         }
-        // let now = &cfg.exit;
-        // let mut global_vec: Vec<BasicBlock> = Vec::new();
-        // for fa in &now.father{
-        //     if let Some(bb) = fa{
-        //         global_vec.push(bb.clone());
-        //     }
-        // }
-        // let mut visited: HashMap<BasicBlock, bool> = HashMap::new();
-        // println!("====================iter{}===========================", count);
-        // for (bb, set) in bb_in.iter(){
-        //     let mut s: String = "".to_string();
-        //     for value in set.iter(){
-        //         s += &format!("{:#?} ", value);
-        //     }
-        //     if let BBType::Other(bb) = bb{
-        //         println!("{:#?}: {}", bb, s);
-        //     } else if let BBType::Enter = bb{
-        //         println!("enter: {}", s);
-        //     } else if let BBType::Exit = bb{
-        //         println!("exit: {}", s);
-        //     }
-        // }
-        // for (bb, set) in bb_out.iter(){
-        //     let mut s: String = "".to_string();
-        //     for value in set.iter(){
-        //         s += &format!("{:#?} ", value);
-        //     }
-        //     if let BBType::Other(bb) = bb{
-        //         println!("{:#?}: {}", bb, s);
-        //     } else if let BBType::Enter = bb{
-        //         println!("enter: {}", s);
-        //     } else if let BBType::Exit = bb{
-        //         println!("exit: {}", s);
-        //     }
-        // }
-        // while !global_vec.is_empty(){
-        //     let now_bb = global_vec.remove(0);
-        //     visited.insert(now_bb.clone(),true);
-        //     let now_bb_data = func_data.dfg().bbs().get(&now_bb).unwrap();
-        //     if let Some(name) = now_bb_data.name(){
-        //         println!("{}", name);
-        //     }
-        //     let now_cfg = cfg.other.get(&now_bb).unwrap();
-        //     let mut vec: Vec<HashSet<Value>> = Vec::new();
-        //     for son in &now_cfg.son{
-        //         if let Some(son) = son{
-        //             let t = bb_in.get(&BBType::Other(son.clone())).unwrap().clone();
-        //             vec.push(t);
-        //         }
-        //     }
-        //     let mut b_out =  merge_in(&vec);
-        //     if let Some(pre_out) = bb_out.get(&BBType::Other(now_bb)){
-        //         let col1 = b_out.difference(&pre_out).collect::<HashSet<&Value>>();
-        //         let col2 = pre_out.difference(&b_out).collect::<HashSet<&Value>>();
-        //         if col1.is_empty() && col2.is_empty(){
-        //             continue;
-        //         }
-        //     }
-        //     bb_out.remove(&BBType::Other(now_bb.clone()));
-        //     bb_out.insert(BBType::Other(now_bb.clone()), b_out.clone());
-        //     let (define_value, use_value) = define_and_use.get(&now_bb).unwrap();
-        //     let (b_in, result) = get_in(&mut b_out, define_value, use_value);
-        //     bb_in.remove(&BBType::Other(now_bb.clone()));
-        //     bb_in.insert(BBType::Other(now_bb.clone()), b_in.clone());
-        //     for fa in &now_cfg.father{
-        //         if let Some(fa) = fa{
-        //             if let None = visited.get(fa){
-        //                 global_vec.push(fa.clone());
-        //             }
-        //         }
-        //     }
-        //     if result{
-        //         in_changed = true;
-        //     }
-        // }
-        // while !global_vec.is_empty() {
-        //     let mut now = global_vec.get(0).unwrap();
-        //     global_vec.remove(0);
-        //     let mut vec: Vec<HashSet<Value>> = Vec::new();
-        //     for father in now.father{
-        //         if let Some(bb) = father{
-        //             global_vec.push(bb);
-        //             for son in cfg.other.get(&bb){
-        //                 for now_son in son.son{
-        //                     if let Some(b) = now_son{
-        //                         vec.push(bb_in.get(&BBType::Other(b)).unwrap().clone());
-        //                     }
-        //                 }
-        //             }
-        //             let mut b_out =  merge_in(&vec);
-        //             bb_out.insert(BBType::Other(bb), b_out.clone());
-        //             let (define_value, use_value) = define_and_use.get(&bb).unwrap();
-        //             let (b_in, result) = get_in(&mut b_out, define_value, use_value);
-        //             bb_in.insert(BBType::Other(bb), b_in.clone());
-        //             if result{
-        //                 in_changed = true;
-        //             }
-        //             vec.clear();
-        //         }
-        //     }
-        // }
     }
     (bb_in, bb_out)
 }
 
 /// recursively solve
 /// now = None means this is the enter BB of function
-// fn solve(now: Option<BasicBlock>, now_in_map: &mut HashMap<BasicBlock, HashSet<Value>>,now_out_map:
-// &mut
-// HashMap<BasicBlock, HashSet<Value>>, cfg: &ControlFlowGraph, define_and_use: &HashMap<BasicBlock,
-//     (HashMap<usize, Value>, HashMap<usize, Value>)>){
-//     let mut cfg_inner;
-//     if let Some(now) = now{
-//         cfg_inner = cfg.other.get(&now).unwrap();
-//     } else {
-//         cfg_inner = &cfg.enter;
-//     }
-//     // already get the value or the bb is exit
-//     if let Some(HashSet) = now_in_map.get(&now.unwrap()) {
-//         return;
-//     } else {
-//         if cfg_inner.code == None{
-//             return;
-//         }
-//         let mut son_vec: Vec<&HashSet<Value>> = Vec::new();
-//         for son in cfg_inner.son{
-//             if let Some(bb) = son{
-//                 if let Some(HashSet) = now_map.get(&bb){
-//                     son_vec.push(HashSet);
-//                     continue;
-//                 } else {
-//                     solve(Some(bb), now_in_map,now_out_map, cfg, define_and_use);
-//                     son_vec.push(now_in_map.get(&bb).unwrap());
-//                 }
-//             }else {
-//                 unreachable!()
-//             }
-//         }
-//         let mut out = merge_in(son_vec);
-//         now_out_map.insert(now.unwrap(), out.clone());
-//         let define_value =  define_and_use.get(&now.unwrap()).unwrap().clone().0;
-//         let use_value = define_and_use.get(&now.unwrap()).unwrap().clone().1;
-//         let in_val = get_in(out.clone(), define_value, use_value);
-//         now_in_map.insert(now.unwrap(), in_val);
-//     }
-// }
 fn check_int(func_data: &FunctionData, val: &Value) -> bool{
     let dfg = func_data.dfg();
     let value_kind = dfg.value(val.clone()).kind();
@@ -636,11 +382,6 @@ pub fn check_used(func_data: &FunctionData, val: &Value, map: &Ref<HashMap<Value
     } else {
         return true;
     }
-    // return if dfg.value(val.clone()).used_by().is_empty() {
-    //     false
-    // } else {
-    //     true
-    // }
 }
 fn check_vec(func_data: &FunctionData, map: &Ref<HashMap<Value, ValueData>>, val: &Value) -> bool{
     let dfg = func_data.dfg();
@@ -664,7 +405,6 @@ fn check_vec(func_data: &FunctionData, map: &Ref<HashMap<Value, ValueData>>, val
                 if let TypeKind::Array(_, _) = point.kind(){
                     return true;
                 } else {
-                    println!("{:#?}", point.to_string());
                     return false;
                 }
             } else {
@@ -731,11 +471,6 @@ impl ActiveAnalysis for Program{
                                 (func_data, &store.dest(), &global_val){
                                 define_value.insert(store.dest().clone());
                             }
-                            // if !define_value.contains(&store.dest()) && !check_int(func_data,
-                            //                                                        &store.dest())
-                            //     && !check_global(&global_val, &store.dest()){
-                            //     use_value.insert(store.dest());
-                            // }
                             if !define_value.contains(&store.value()) && !check_global
                                 (&global_val, &store.value())&& !check_int(func_data,
                                                                                     &store.value
@@ -750,7 +485,6 @@ impl ActiveAnalysis for Program{
                                 && !check_int(func_data, &load.src()){
                                 use_value.insert(load.src());
                             }
-                            println!("in load:{:#?}", inst);
                             define_value.insert(inst.clone());
                         }
                         ValueKind::Alloc(alloc) =>{
@@ -779,11 +513,9 @@ impl ActiveAnalysis for Program{
                                     use_value.insert(arg.clone());
                                 }
                             }
-                            if let a = func_data.dfg().value(inst
-                                .clone()).ty(){
-                                if a.eq(&Type::get_i32()) && check_used(func_data, inst, &global_val){
-                                    define_value.insert(inst.clone());
-                                }
+                            let a = func_data.dfg().value(inst.clone()).ty();
+                            if a.eq(&Type::get_i32()) && check_used(func_data, inst, &global_val){
+                                define_value.insert(inst.clone());
                             }
                         }
                         ValueKind::GetElemPtr(get_elem_ptr) => {
@@ -897,27 +629,14 @@ impl Iterator for IntervalHandler{
         if !self.start.is_empty(){
             let mut tmp = Vec::new();
             let StartQueueInner(val, idx) = self.start.pop().unwrap().0;
-            println!("{:#?} start at {}", val, idx);
             while idx > self.end.peek().unwrap().0.1{
                 let StartQueueInner(val, idx) = self.end.pop().unwrap().0;
-                println!("{:#?} end at {}", val, idx);
                 tmp.push(val.clone());
             }
             Some((val, tmp))
         } else {
             None
         }
-    }
-}
-#[cfg(test)]
-#[test]
-fn test(){
-    let mut bin_heap = BinaryHeap::new();
-    for i in 1..13{
-        bin_heap.push(std::cmp::Reverse(i));
-    }
-    while let Some(i) = bin_heap.pop(){
-        println!("{}", i.0);
     }
 }
 
@@ -968,25 +687,8 @@ impl Interval{
             tmp.push_back(merged);
             self.interval = tmp;
         } else {
-            let vv = func_data.dfg().value(val.clone());
-            println!("{:#?}", vv);
-            println!("{:#?}",func_data.dfg().value(val.clone()).kind());
-            println!("{:#?}", func_data.dfg().value(vv.used_by().iter().next().unwrap().clone()));
-            if let ValueKind::Load(load) = func_data.dfg().value(val.clone()).kind(){
-                println!("{:#?}", func_data.dfg().value(load.src()));
-            }
             unreachable!();
         }
-        // for interval in &self.interval{
-        //     if merged.1 != interval.0{
-        //         if merged != (0, 0){
-        //             tmp.push_back(merged.clone());
-        //         }
-        //         merged = interval.clone();
-        //     } else {
-        //         merged.1 = interval.1;
-        //     }
-        // }
     }
 }
 pub trait IntervalAnalysis{
@@ -1011,10 +713,6 @@ impl IntervalAnalysis for Program{
                     if let Some(bbn) = self.func(func.clone()).layout().bbs().node(&bb) {
                         let func_data = self.func(func.clone());
                         let bb_data = func_data.dfg().bbs().get(&bb);
-                        let bb_data = bb_data.unwrap();
-                        if let Some(name) = bb_data.name(){
-                            println!("{}", name);
-                        }
                         let end = cnt;
                         let begin  = cnt - bbn.insts().len() as i32;
                         if let Some(out_var) = act.out_var.get(&BBType::Other(bb)){
@@ -1274,7 +972,7 @@ impl IntervalAnalysis for Program{
                         }
                     }
                 }
-                for (val, mut idx) in &mut func_interval{
+                for (val, idx) in &mut func_interval{
                     for i in 0..idx.interval.len(){
                         if let Some((left, right)) = idx.interval.get_mut(i){
                             *left -= cnt;
@@ -1294,7 +992,6 @@ impl IntervalAnalysis for Program{
                 interval_1.merge_interval(val, self.func(func.clone()));
             }
         }
-        // self.print_interval(&all_interval);
         all_interval
     }
     fn print_interval(&self, interval: &HashMap<Function, HashMap<Value, Interval>>) {
