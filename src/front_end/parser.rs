@@ -95,6 +95,8 @@ pub fn check_load_ins(name: &String) -> Option<String>{
         None
     }
 }
+
+
 pub fn get_reg_idx(name: &String) -> i32{
     let a = check_load_ins(name);
     let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
@@ -1252,6 +1254,7 @@ impl GetKoopa for Stmt{
                         let mut go = g.lock().unwrap();
                         let unique_name = format!("{}_{}",ident.ident, go.exist_var_symbol(&ident
                             .ident).unwrap());
+
                         if go.is_var(&ident.ident){
                             go.modify_var_symbol(&ident.ident, i);
                             format!("\tstore {}, @{}\n",i, unique_name)
@@ -1272,6 +1275,7 @@ impl GetKoopa for Stmt{
                             let go = g.lock().unwrap();
                             unique_name = format!("{}_{}", ident.ident, go.exist_var_symbol(&ident
                                 .ident).unwrap());
+
                             is_var = go.is_var(&ident.ident);
                         }
                         let reg = get_reg_idx(&s2);
@@ -1718,6 +1722,7 @@ impl GetKoopa for PrimaryExp{
         }  else {
             if let Some(a) = self.num{
                 format!("{}", a)
+
             } else if let Some(a) = &self.lval {
                 let mut const_bool = false;
                 let mut global_bool = false;
@@ -1745,6 +1750,7 @@ impl GetKoopa for PrimaryExp{
                        var_bool = false;
                    }
                }
+
                {
                     let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                     let k = g.borrow_mut().get_mut();
@@ -2508,6 +2514,19 @@ impl InitVal{
         if let Some(a) = self.exp.as_ref().unwrap().eval_const(){
             let Value::Int(i) = a;
             format!("{}", i)
+        } else {
+            unreachable!()
+        }
+    }
+}
+impl InitVal{
+    fn get_global_definition(&self) -> String {
+        if let Some(a) = self.exp.eval_const(){
+            if let Value::Int(i) = a {
+                format!("{}", i)
+            } else {
+                "".to_string()
+            }
         } else {
             unreachable!()
         }
