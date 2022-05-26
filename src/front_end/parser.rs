@@ -10,33 +10,33 @@ use crate::front_end::REG_INDEX;
 use std::sync::Arc;
 use crate::front_end::ir_marco::{lor_code_gen, land_code_gen};
 lazy_static!{
-    static ref global_branch_count:Arc<Mutex<RefCell<i32>>> = Arc::new(Mutex::new(RefCell::new(1)));
-    static ref global_return_switch:Arc<Mutex<RefCell<bool>>> = Arc::new(Mutex::new(RefCell::new
+    static ref GLOBAL_BRANCH_COUNT: Arc<Mutex<RefCell<i32>>> = Arc::new(Mutex::new(RefCell::new
+        (1)));
+    static ref GLOBAL_RETURN_SWITCH:Arc<Mutex<RefCell<bool>>> = Arc::new(Mutex::new(RefCell::new
         (true)));
-    static ref global_while_count: Arc<Mutex<RefCell<(Vec<i32>, i32)>>> = Arc::new(Mutex::new
+    static ref GLOBAL_WHILE_COUNT: Arc<Mutex<RefCell<(Vec<i32>, i32)>>> = Arc::new(Mutex::new
         (RefCell::new((Vec::new(), 0))));
-    static ref global_while_switch:Arc<Mutex<RefCell<bool>>> = Arc::new(Mutex::new(RefCell::new
+    static ref GLOBAL_WHILE_SWITCH:Arc<Mutex<RefCell<bool>>> = Arc::new(Mutex::new(RefCell::new
         (true)));
-    static ref now_function_name:Arc<Mutex<RefCell<String>>> = Arc::new(Mutex::new(RefCell::new
+    static ref NOW_FUNCTION_NAME:Arc<Mutex<RefCell<String>>> = Arc::new(Mutex::new(RefCell::new
         ("".to_string())));
-
-    static ref initialier_switch: Arc<Mutex<RefCell<bool>>> = Arc::new(Mutex::new(RefCell::new(false)));
+    static ref INITIALIZER_SWITCH: Arc<Mutex<RefCell<bool>>> = Arc::new(Mutex::new(RefCell::new(false)));
 }
 pub fn get_while() -> i32{
-    let mut g = global_while_count.lock().unwrap();
+    let mut g = GLOBAL_WHILE_COUNT.lock().unwrap();
     let gg = g.borrow_mut().get_mut();
     let (gg, _) = gg;
     gg[gg.len()-1]
 }
 pub fn record_while(count: i32){
-    let mut g = global_while_count.lock().unwrap();
+    let mut g = GLOBAL_WHILE_COUNT.lock().unwrap();
     let gg = g.borrow_mut().get_mut();
     let (while_count, deepth) = gg;
     while_count.push(count);
     *deepth  = *deepth + 1;
 }
 pub fn leave_while(){
-    let mut g = global_while_count.lock().unwrap();
+    let mut g = GLOBAL_WHILE_COUNT.lock().unwrap();
     let gg = g.borrow_mut().get_mut();
     let (vec, deepth) = gg;
     vec.pop();
@@ -73,7 +73,7 @@ pub fn alloc_reg_for_const(s: String) -> String{
     }
 }
 pub fn add_branch_count() -> i32{
-    let mut a = global_branch_count.lock().unwrap();
+    let mut a = GLOBAL_BRANCH_COUNT.lock().unwrap();
     let g = a.borrow_mut().get_mut();
     *g = *g + 1;
     *g
@@ -135,7 +135,7 @@ fn test(a_string: String, c_string: String, a_reg_idx: i32, c_reg_idx: i32,reg_i
         } else {
             let tmp = format!("\t%{} = {} %{}, %{}\n",reg_idx, operation, a_reg_idx,
                               c_reg_idx);
-            let mut tmp1 = "".to_string();
+            let tmp1;
             tmp1 = a_string + &c_string;
             tmp1 + &tmp
         }
@@ -219,7 +219,7 @@ fn generate_const_init_val(array_init: &Box<ConstArrayInit>, dim_vec: &Vec<i32>,
     let mut result: Vec<i32> = Vec::new();
     let mut now_dim = 1;
     let mut count = 0;
-    let mut layer_count = 0;
+    let mut layer_count;
     let init = &array_init.array_init;
     if let Some(exp) = &init.const_exp{
         let val = exp.exp.eval_const().unwrap();
@@ -361,7 +361,7 @@ fn generate_init_val(array_init: &Box<VarArrayInit>, dim_vec: &Vec<i32>,
     // 观察当前initVal是否是一个exp，如果是的话就直接加
     let mut now_dim = 1;
     let mut count = 0;
-    let mut layer_count = 0;
+    let mut layer_count ;
     let init = &array_init.array_init;
     let mut result: Vec<ValueOrExp> = Vec::new();
     if let Some(exp) = &init.exp{
@@ -681,7 +681,7 @@ impl VarDef{
     fn get_global_definition(&self) -> String{
         let s = self.get_name();
         if !self.array_init.is_empty(){
-            let mut unique_name = "".to_string();
+            let unique_name;
             {
                 let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                 let g = m.borrow_mut().get_mut();
@@ -787,7 +787,7 @@ impl GetKoopa for FuncParams{
     fn get_koopa(& self) -> Self::Output{
         let mut ident = &self.param.ident;
         let mut btype = &self.param.btype;
-        let mut idx = &self.param.array_idx;
+        let mut idx;
         let mut s_type = "".to_string();
         match btype{
             BType::Int => {
@@ -888,7 +888,7 @@ impl FuncParams{
                     for _ in 0..array_idx.const_exp.len() + 1{
                         vec.push(0);
                     }
-                    let mut s = -9999;
+                    let s;
                     {
                         let mut o = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                         let mut now_symbol = o.borrow_mut().get_mut().now_symbol.as_mut().unwrap().lock().unwrap();
@@ -898,7 +898,7 @@ impl FuncParams{
                     s_type += &format!("\t@{}_{} = alloc {}\n\tstore %{}, @{}_{}\n", ident, s,
                         sss, ident, ident, s);
                 }else {
-                    let mut s = -9999;
+                    let s;
                     {
                         let mut o = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                         let mut now_symbol = o.borrow_mut().get_mut().now_symbol.as_mut().unwrap().lock().unwrap();
@@ -941,7 +941,7 @@ impl FuncParams{
                             for _ in 0..array_idx.const_exp.len() + 1{
                                 vec.push(0);
                             }
-                            let mut s = -9999;
+                            let s;
                             {
                                 let mut o = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                                 let mut now_symbol = o.borrow_mut().get_mut().now_symbol.as_mut().unwrap().lock().unwrap();
@@ -951,7 +951,7 @@ impl FuncParams{
                             s_type += &format!("\t@{}_{} = alloc {}\n\tstore %{}, @{}_{}\n", ident, s,
                                                sss, ident, ident, s);
                         }else {
-                            let mut s = -9999;
+                            let s;
                             {
                                 let mut o = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                                 let mut now_symbol = o.borrow_mut().get_mut().now_symbol.as_mut().unwrap().lock().unwrap();
@@ -973,7 +973,7 @@ impl GetKoopa for FuncDef{
     type Output = String;
     fn get_koopa(&self) -> Self::Output {
         let typ: &str;
-        let mut sr: String = "".to_string();
+        let sr;
         {
             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
             let g = &m.borrow_mut().get_mut().global_symbol_table;
@@ -985,7 +985,7 @@ impl GetKoopa for FuncDef{
                 t = FuncType::Void;
             }
             s.lock().unwrap().insert_function_symbol((&self.id).to_string(), t);
-            let mut o = now_function_name.lock().unwrap();
+            let mut o = NOW_FUNCTION_NAME.lock().unwrap();
             let func_name = o.borrow_mut().get_mut();
             *func_name = self.id.clone();
         }
@@ -1016,11 +1016,9 @@ impl GetKoopa for FuncDef{
             },
         }
         let mut s0 =  "".to_string();
-        let mut scope = false;
         let mut has_params = false;
         if let Some(params) = &self.params{
             s0 += &params.alloc_local_var();
-            scope = true;
             has_params = true;
         } else {
             s0 = "".to_string();
@@ -1076,7 +1074,7 @@ impl GetKoopa for Block {
             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
             let g = m.borrow_mut().get_mut();
             g.deallocate_symbol_table();
-            let mut o = global_return_switch.lock().unwrap();
+            let mut o = GLOBAL_RETURN_SWITCH.lock().unwrap();
             let q = o.get_mut();
             *q = true;
         }
@@ -1113,9 +1111,9 @@ impl GetKoopa for BlockItem{
 impl GetKoopa for Stmt{
     type Output = String;
     fn get_koopa(&self) -> Self::Output {
-        let mut o = global_return_switch.lock().unwrap();
+        let mut o = GLOBAL_RETURN_SWITCH.lock().unwrap();
         let q = *o.get_mut();
-        let mut w = global_while_switch.lock().unwrap();
+        let mut w = GLOBAL_WHILE_SWITCH.lock().unwrap();
         let qq = *w.get_mut();
         std::mem::drop(w);
         std::mem::drop(o);
@@ -1123,13 +1121,13 @@ impl GetKoopa for Stmt{
             match &self.stmt_type{
                 StmtType::Return(exp) => {
                     if let Some(exp) = exp{
-                        let mut o = global_return_switch.lock().unwrap();
+                        let mut o = GLOBAL_RETURN_SWITCH.lock().unwrap();
                         let q = o.get_mut();
                         *q = false;
                         let a = exp.eval_const();
-                        let mut function_name = "".to_string();
+                        let function_name ;
                         {
-                            function_name = now_function_name.lock().unwrap().borrow_mut()
+                            function_name = NOW_FUNCTION_NAME.lock().unwrap().borrow_mut()
                                 .get_mut().to_string();
                         }
                         if let Some(Value::Int(i)) = a{
@@ -1146,12 +1144,12 @@ impl GetKoopa for Stmt{
                             }
                         }
                     } else {
-                        let mut o = global_return_switch.lock().unwrap();
+                        let mut o = GLOBAL_RETURN_SWITCH.lock().unwrap();
                         let q = o.get_mut();
                         *q = false;
-                        let mut function_name = "".to_string();
+                        let function_name;
                         {
-                            function_name = now_function_name.lock().unwrap().borrow_mut()
+                            function_name = NOW_FUNCTION_NAME.lock().unwrap().borrow_mut()
                                 .get_mut().to_string();
                         }
                         return format!("\tjump %end_{}\n", function_name);
@@ -1178,8 +1176,8 @@ impl GetKoopa for Stmt{
                             ss + &format!("\tstore {}, %{}",i, reg)
                         }
                     } else {
-                        let mut unique_name = "".to_string();
-                        let mut is_var: bool = true;
+                        let mut unique_name;
+                        let is_var;
                         {
                             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                             let g = &m.borrow_mut().get_mut().now_symbol.as_ref().unwrap();
@@ -1222,9 +1220,9 @@ impl GetKoopa for Stmt{
                                                       &alloc_reg_for_const(d
                                                           .get_koopa()), branch_count);
                             {
-                                let mut o = global_return_switch.lock().unwrap();
+                                let mut o = GLOBAL_RETURN_SWITCH.lock().unwrap();
                                 let q = o.get_mut();
-                                let mut w = global_while_switch.lock().unwrap();
+                                let mut w = GLOBAL_WHILE_SWITCH.lock().unwrap();
                                 let qq = w.get_mut();
                                 *qq = true;
                                 *q = true;
@@ -1232,10 +1230,10 @@ impl GetKoopa for Stmt{
                             let s3 = check_return(format!("%else_{}:\n", branch_count) + &alloc_reg_for_const
                                 (e.get_koopa()),branch_count);
                             {
-                                let mut o = global_return_switch.lock().unwrap();
+                                let mut o = GLOBAL_RETURN_SWITCH.lock().unwrap();
                                 let q = o.get_mut();
                                 *q = true;
-                                let mut w = global_while_switch.lock().unwrap();
+                                let mut w = GLOBAL_WHILE_SWITCH.lock().unwrap();
                                 let qq = w.get_mut();
                                 *qq = true
                             }
@@ -1253,20 +1251,20 @@ impl GetKoopa for Stmt{
                                                           &alloc_reg_for_const(d
                                                               .get_koopa()), branch_count);
                                 {
-                                    let mut o = global_return_switch.lock().unwrap();
+                                    let mut o = GLOBAL_RETURN_SWITCH.lock().unwrap();
                                     let q = o.get_mut();
                                     *q = true;
-                                    let mut w = global_while_switch.lock().unwrap();
+                                    let mut w = GLOBAL_WHILE_SWITCH.lock().unwrap();
                                     let qq = w.get_mut();
                                     *qq = true
                                 }
                                 let s3 = check_return(format!("%else_{}:\n", branch_count) + &alloc_reg_for_const
                                     (e.get_koopa()),branch_count);
                                 {
-                                    let mut o = global_return_switch.lock().unwrap();
+                                    let mut o = GLOBAL_RETURN_SWITCH.lock().unwrap();
                                     let q = o.get_mut();
                                     *q = true;
-                                    let mut w = global_while_switch.lock().unwrap();
+                                    let mut w = GLOBAL_WHILE_SWITCH.lock().unwrap();
                                     let qq = w.get_mut();
                                     *qq = true
                                 }
@@ -1279,10 +1277,10 @@ impl GetKoopa for Stmt{
                                                           &alloc_reg_for_const(d
                                                               .get_koopa()), branch_count);
                                 {
-                                    let mut o = global_return_switch.lock().unwrap();
+                                    let mut o = GLOBAL_RETURN_SWITCH.lock().unwrap();
                                     let q = o.get_mut();
                                     *q = true;
-                                    let mut w = global_while_switch.lock().unwrap();
+                                    let mut w = GLOBAL_WHILE_SWITCH.lock().unwrap();
                                     let qq = w.get_mut();
                                     *qq = true
                                 }
@@ -1325,7 +1323,7 @@ impl GetKoopa for Stmt{
                     }
                     leave_while();
                     {
-                        let mut w = global_while_switch.lock().unwrap();
+                        let mut w = GLOBAL_WHILE_SWITCH.lock().unwrap();
                         let qq = w.get_mut();
                         *qq = true;
                     }
@@ -1333,7 +1331,7 @@ impl GetKoopa for Stmt{
                 }
                 StmtType::Break => {
                     {
-                        let mut w = global_while_switch.lock().unwrap();
+                        let mut w = GLOBAL_WHILE_SWITCH.lock().unwrap();
                         let qq = w.get_mut();
                         *qq = false;
                     }
@@ -1341,7 +1339,7 @@ impl GetKoopa for Stmt{
                 }
                 StmtType::Continue => {
                     {
-                        let mut w = global_while_switch.lock().unwrap();
+                        let mut w = GLOBAL_WHILE_SWITCH.lock().unwrap();
                         let qq = w.get_mut();
                         *qq = false;
                     }
@@ -1532,8 +1530,8 @@ impl PrimaryExp{
 impl GetKoopa for Lval{
     type Output = String;
     fn get_koopa(&self) -> Self::Output {
-        let mut symbol_id = 0;
-        let mut raw_ptr_bool = false;
+        let symbol_id ;
+        let raw_ptr_bool;
         {
             let mut m = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
             let g = &m.borrow_mut().get_mut().now_symbol.as_ref().unwrap();
@@ -1635,9 +1633,9 @@ impl GetKoopa for PrimaryExp{
                 format!("{}", a)
 
             } else if let Some(a) = &self.lval {
-                let mut const_bool = false;
-                let mut global_bool = false;
-                let mut var_bool = false;
+                let const_bool;
+                let global_bool;
+                let var_bool;
                 let mut raw_ptr_bool = false;
                 {
                     let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
@@ -1720,7 +1718,7 @@ impl GetKoopa for PrimaryExp{
                                    }
                                }
                            }
-                            let mut dim: Vec<i32> = Vec::new();
+                            let dim;
                            {
                                let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                                let m = g.borrow_mut().get_mut();
@@ -1776,7 +1774,7 @@ impl GetKoopa for PrimaryExp{
                                    }
                                }
                            }
-                           let mut dim: Vec<i32> = Vec::new();
+                           let dim;
                            {
                                let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();
                                let m = g.borrow_mut().get_mut();
@@ -2614,7 +2612,7 @@ impl EvalConst for PrimaryExp{
             Some(Value::Int(n))
         } else {
             if let Some(tmp) = &self.lval{
-                let mut const_bool = false;
+                let mut const_bool;
                 let mut global_bool = false;
                 {
                     let mut g = GLOBAL_SYMBOL_TABLE_ALLOCATOR.lock().unwrap();

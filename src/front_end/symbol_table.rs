@@ -130,7 +130,7 @@ impl SymbolTable{
     }
     pub fn modify_var_symbol(&mut self, name: &String, value: i32){
         if let Some(_) = self.exist_var_symbol(name){
-            if let Some(a) = self.table.get(name){
+            if let Some(_) = self.table.get(name){
                 self.table.remove(name);
                 self.insert_var_symbol(name.to_string(), Some(value));
             } else {

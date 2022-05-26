@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use koopa::ir::{Function, FunctionData, Value, Program};
+use koopa::ir::{Function, Value, Program};
 use crate::optim::cfg::{Interval, IntervalHandler};
 
 struct RegAllocator{
@@ -27,7 +27,7 @@ impl RegAllocator{
     }
     /// if reg is invalid, do nothing
     /// if not in val_use_reg means this value is allocated to the stack, just do nothing
-    fn free_reg(&mut self, val: Value, func_data: &FunctionData){
+    fn free_reg(&mut self, val: Value){
         if self.val_use_reg.contains_key(&val){
             let val = self.val_use_reg.remove(&val).unwrap();
             self.reg_store_val.remove(&val);
@@ -64,7 +64,7 @@ impl RegAlloc for Program{
             reg_allocator.reset();
             for (value, out_of_use) in handle{
                 for val in out_of_use{
-                    reg_allocator.free_reg(val, self.func(func.clone()));
+                    reg_allocator.free_reg(val);
                 }
                 dequeue.push_back((value, reg_allocator.alloc_reg(value)));
             }

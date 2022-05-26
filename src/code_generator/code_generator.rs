@@ -23,7 +23,7 @@ pub enum RegType{
     #[warn(dead_code)]
     S(i32)
 }
-pub trait RegAlloctor{
+pub trait RegAllocator {
     fn store_type_bound(&mut self, value: Value, store_type: StoreType);
     fn get_offset_reg(&mut self, offset: i32) -> (String, i32);
     fn alloc_tmp_reg(&mut self) -> Option<i32>;
@@ -57,7 +57,7 @@ pub enum StorePos{
     Reg(String),
     Stack(String)
 }
-struct GlobalRegAlloctor{
+struct GlobalRegAllocator {
     tmp_reg_pool: Vec<i32>,
     stack_allocation: HashMap<Value, i32>,
     reg_allocation: HashMap<Value, Option<i32>>,
@@ -67,8 +67,8 @@ struct GlobalRegAlloctor{
     offset: i32,
     start_offset: i32
 }
-impl GlobalRegAlloctor{
-    fn new(bottom: i32, top: i32) -> GlobalRegAlloctor{
+impl GlobalRegAllocator {
+    fn new(bottom: i32, top: i32) -> GlobalRegAllocator {
         let mut v:Vec<i32> = Vec::new();
         for i in (bottom..top+1).rev(){
             v.push(i);
@@ -77,7 +77,7 @@ impl GlobalRegAlloctor{
         for i in 0..12 {
             queue.push_back(i);
         }
-        GlobalRegAlloctor{ tmp_reg_pool: v, reg_allocation: HashMap::new(), stack_allocation:
+        GlobalRegAllocator { tmp_reg_pool: v, reg_allocation: HashMap::new(), stack_allocation:
         HashMap::new(), store_type: HashMap::new() ,borrowed_reg: HashMap::new(), offset: 0 ,
             start_offset: 0, have_borrowed: queue}
     }
@@ -90,7 +90,7 @@ impl GlobalRegAlloctor{
         self.start_offset = 0;
     }
 }
-impl RegAlloctor for GlobalRegAlloctor{
+impl RegAllocator for GlobalRegAllocator {
     fn store_type_bound(&mut self, value: Value, store_type: StoreType){
         self.store_type.insert(value.clone(), store_type);
     }
@@ -154,7 +154,7 @@ impl RegAlloctor for GlobalRegAlloctor{
     ///        store value back to memory, and recover S_n
     fn get_space(&mut self, value: Value) -> (StorePos, String){
         if let Some(reg) = self.reg_allocation.get(&value).unwrap(){
-            (StorePos::Reg(format!("s{}", *reg)), "".to_string())
+            (Reg(format!("s{}", *reg)), "".to_string())
         } else if let Some(offset) = self.stack_allocation.get(&value){
             let (load_string, reg_idx) = self.get_offset_reg(*offset);
             let (idx, store_string) = self.borrow_reg(&value);
@@ -209,15 +209,15 @@ impl RegAlloctor for GlobalRegAlloctor{
     }
 }
 lazy_static!{
-    static ref global_reg_allocator: Mutex<RefCell<GlobalRegAlloctor>> = Mutex::new(RefCell::new
-        (GlobalRegAlloctor::new(0, 6)));
-    static ref global_function_name: Mutex<HashMap<Function, String>> = Mutex::new(HashMap::new());
-    static ref now_sp_size: Mutex<RefCell<i32>> = Mutex::new(RefCell::new(0));
-    static ref global_function_type: Mutex<HashMap<Function, String>> = Mutex::new
+    static ref GLOBAL_REG_ALLOCATOR: Mutex<RefCell<GlobalRegAllocator >> = Mutex::new(RefCell::new
+        (GlobalRegAllocator::new(0, 6)));
+    static ref GLOBAL_FUNCTION_NAME: Mutex<HashMap<Function, String>> = Mutex::new(HashMap::new());
+    static ref NOW_SP_SIZE: Mutex<RefCell<i32>> = Mutex::new(RefCell::new(0));
+    static ref GLOBAL_FUNCTION_TYPE: Mutex<HashMap<Function, String>> = Mutex::new
     (HashMap::new());
-    static ref global_varable: Mutex<HashMap<Value, String>> = Mutex::new
+    static ref GLOBAL_VARIABLE: Mutex<HashMap<Value, String>> = Mutex::new
     (HashMap::new());
-    static ref global_variable_type: Mutex<HashMap<Value, (String, i32)>> = Mutex::new
+    static ref GLOBAL_VARIABLE_TYPE: Mutex<HashMap<Value, (String, i32)>> = Mutex::new
     (HashMap::new());
 }
 fn gen_agg_init(agg: &Aggregate, values: HashMap<Value, ValueData>) -> String{
@@ -240,14 +240,14 @@ fn gen_agg_init(agg: &Aggregate, values: HashMap<Value, ValueData>) -> String{
 impl GenerateAsm for Program{
     fn generate(&self) -> String {
         let mut s = "".to_string();
-        let mut m = global_function_name.lock().unwrap();
-        let mut t = global_function_type.lock().unwrap();
-        let values = self.borrow_values();
-        let vvalue = values.iter();
+        let mut m = GLOBAL_FUNCTION_NAME.lock().unwrap();
+        let mut t = GLOBAL_FUNCTION_TYPE.lock().unwrap();
+        let global_values = self.borrow_values();
+        let global_values_iter = global_values.iter();
         s += "\t.data\n";
-        for (val,val_data) in vvalue{
-            let mut var = global_varable.lock().unwrap();
-            let mut var_type = global_variable_type.lock().unwrap();
+        for (val,val_data) in global_values_iter {
+            let mut var = GLOBAL_VARIABLE.lock().unwrap();
+            let mut var_type = GLOBAL_VARIABLE_TYPE.lock().unwrap();
             if let Some(name) = val_data.name(){
                 if let TypeKind::Pointer(p) = val_data.ty().kind(){
                     if let TypeKind::Array(ty, _) = p.kind(){
@@ -262,7 +262,7 @@ impl GenerateAsm for Program{
                 s += &format!("\t.global {}\n",name[1..].to_string());
                 s += &format!("{}:\n",name[1..].to_string());
                 if let ValueKind::GlobalAlloc(g) = val_data.kind(){
-                    let init_value = values.get(&g.init());
+                    let init_value = global_values.get(&g.init());
                     if let Some(i) = init_value{
                         if let Integer(ii) = i.kind(){
                             if ii.value() == 0{
@@ -271,7 +271,7 @@ impl GenerateAsm for Program{
                                 s += &format!("\t.word {}\n", ii.value());
                             }
                         } else if let ValueKind::Aggregate(agg) = i.kind(){
-                            s += &gen_agg_init(agg, values.clone());
+                            s += &gen_agg_init(agg, global_values.clone());
                         } else if let ValueKind::ZeroInit(_) = i.kind(){
                             if let TypeKind::Array(arr_type, arr_size) = i.ty().kind(){
                                 s += &format!("\t.zero {}\n", arr_type.size() * *arr_size);
@@ -301,15 +301,15 @@ impl GenerateAsm for Program{
                 }
             }
         }
-        std::mem::drop(m);
-        std::mem::drop(t);
+        drop(m);
+        drop(t);
         for &func in self.func_layout(){
             let tmp = &self.func(func).name().to_string()[1..];
             if is_lib(tmp){
                 continue;
             }
             {
-                let mut m = global_reg_allocator.lock().unwrap();
+                let mut m = GLOBAL_REG_ALLOCATOR.lock().unwrap();
                 let g = m.borrow_mut().get_mut();
                 let alloc = alloc_result.remove(&func).unwrap();
 
@@ -318,7 +318,7 @@ impl GenerateAsm for Program{
             let mut head = "\t.text\n".to_string();
             let mut func_def = "".to_string();
             head += &format!("\t.global {}\n", tmp);
-            func_def += &self.func(func).generate(&values);
+            func_def += &self.func(func).generate(&global_values);
             s += &(head + &func_def);
         }
         s
@@ -380,12 +380,12 @@ fn calculate_and_allocate_space(this: &FunctionData, reg_allocator: &HashMap<Val
     }
     bits += vec.len() as i32 * 4;
     if caller{
-        let mut m = now_sp_size.lock().unwrap();
+        let mut m = NOW_SP_SIZE.lock().unwrap();
         let sp = ((bits + 4 + (arg_count_max * 4) as i32 + 15) / 16) as i32 * 16;
         *m.get_mut() = sp;
         Caller::Caller((sp, arg_count_max as i32 + vec.len() as i32, vec))
     } else {
-        let mut m = now_sp_size.lock().unwrap();
+        let mut m = NOW_SP_SIZE.lock().unwrap();
         let sp = ((bits + (arg_count_max * 4) as i32 + 15) / 16) as i32 * 16;
         *m.get_mut() = sp;
         Caller::Nocall((sp, arg_count_max as i32 + vec.len() as i32, vec))
@@ -411,14 +411,14 @@ impl GenerateAsmFunc for FunctionData{
         s += &format!("{}:\n", &self.name().to_string()[1..]);
         let caller;
         {
-            let mut k = global_reg_allocator.lock().unwrap();
-            let mut m = k.get_mut();
+            let mut k = GLOBAL_REG_ALLOCATOR.lock().unwrap();
+            let m = k.get_mut();
             caller = calculate_and_allocate_space(self, &m.reg_allocation);
         }
         let sp_len;
         let save_and_recover;
         if let Caller::Caller((sp, offset, set)) = &caller{
-            let mut k = global_reg_allocator.lock().unwrap();
+            let mut k = GLOBAL_REG_ALLOCATOR.lock().unwrap();
             let mut m = k.get_mut();
             save_and_recover = save_and_recover_reg(set);
             sp_len = sp;
@@ -432,7 +432,7 @@ impl GenerateAsmFunc for FunctionData{
             m.start_offset = offset * 4;
         } else if let Caller::Nocall((sp, offset, set)) = &caller{
             save_and_recover = save_and_recover_reg(set);
-            let mut k = global_reg_allocator.lock().unwrap();
+            let mut k = GLOBAL_REG_ALLOCATOR.lock().unwrap();
             let mut m = k.get_mut();
             sp_len = sp;
             let (ss, reg) = m.get_offset_reg(*sp);
@@ -526,13 +526,13 @@ impl GenerateAsmFunc for FunctionData{
                     if *a == end_name{
                         s += &save_and_recover.1;
                         if let Caller::Caller((sp, _, _)) = caller{
-                            let mut k = global_reg_allocator.lock().unwrap();
+                            let mut k = GLOBAL_REG_ALLOCATOR.lock().unwrap();
                             let m = k.get_mut();
                             let (ss, reg) = m.get_offset_reg(sp - 4);
                             s += &(ss + &format!("\tadd t{}, sp, t{}\n",reg, reg) + &format!("\tlw ra, 0(t{})\n", reg));
                             m.free_reg(reg);
                         }
-                        let mut k = global_reg_allocator.lock().unwrap();
+                        let mut k = GLOBAL_REG_ALLOCATOR.lock().unwrap();
                         let m = k.get_mut();
                         let (ss, reg) = m.get_offset_reg(*sp_len);
                         s += &(ss + &format!("\tadd sp, sp, t{}\n",reg));
@@ -551,7 +551,7 @@ trait SplitGen {
     fn bin_gen(&self, s: &mut String, bin: &Binary, value: Value);
     fn alloc_gen(&self, value: Value);
     fn load_gen(&self, s: &mut String, alloc: &Load, value: Value);
-    fn store_gen(&self, s: &mut String, alloc: &Store, global_varable_ref:
+    fn store_gen(&self, s: &mut String, alloc: &Store, global_variable_ref:
     &Ref<HashMap<Value, ValueData>>);
     fn branch_gen(&self, s: &mut String, branch: &Branch);
     fn jump_gen(&self, s: &mut String, jump: &Jump);
@@ -568,7 +568,7 @@ impl SplitGen for FunctionData {
                 Integer(i) =>
                     *s += &format!("\tli a0, {}\n", i.value()),
                 _ =>{
-                    let mut g = global_reg_allocator.lock().unwrap();
+                    let mut g = GLOBAL_REG_ALLOCATOR.lock().unwrap();
                     let r = g.borrow_mut().get_mut();
                     let (idx, before) = r.get_space(val);
                     let mut recover_idx = false;
@@ -576,7 +576,7 @@ impl SplitGen for FunctionData {
                         *s += &before;
                         *s += &(format!("\tmv a0, {}\n", reg_name));
                         recover_idx = true;
-                    } else if let StorePos::Reg(reg_name) = idx{
+                    } else if let Reg(reg_name) = idx{
                         *s += &(before + &(format!("\tmv a0, {}\n", reg_name)) + &r.return_reg
                         (val));
                     }
@@ -595,7 +595,7 @@ impl SplitGen for FunctionData {
         let op = bin.op();
         let bin_operation:String;
         let idx;
-        let mut g = global_reg_allocator.lock().unwrap();
+        let mut g = GLOBAL_REG_ALLOCATOR.lock().unwrap();
         let r = g.borrow_mut().get_mut();
         r.store_type_bound(value, StoreType::Value);
         let mut tmp_r:i32 = 0;
@@ -616,7 +616,7 @@ impl SplitGen for FunctionData {
             }
         } else {
             let (idx, before) = r.get_space(r_value);
-            if let StorePos::Reg(reg_name) = idx{
+            if let Reg(reg_name) = idx{
                 r_s = reg_name;
             } else if let Stack(reg_name) = idx{
                 recover_r = true;
@@ -748,9 +748,9 @@ impl SplitGen for FunctionData {
         }
     }
     fn alloc_gen(&self, value: Value) {
-        let mut m = global_reg_allocator.lock().unwrap();
+        let mut m = GLOBAL_REG_ALLOCATOR.lock().unwrap();
         let g = m.get_mut();
-        let mut size = 0;
+        let size ;
         if let TypeKind::Pointer(type_id)= self.dfg().value(value).ty().kind(){
             let i32_type = Type::get_i32();
             if i32_type == *type_id{
@@ -778,16 +778,16 @@ impl SplitGen for FunctionData {
     }
     fn load_gen(&self, s: &mut String, load: &Load, value: Value) {
         let src_value = load.src();
-        let var = global_varable.lock().unwrap();
+        let var = GLOBAL_VARIABLE.lock().unwrap();
         let reg_idx;
         let src_reg_idx;
-        let mut m = global_reg_allocator.lock().unwrap();
+        let mut m = GLOBAL_REG_ALLOCATOR.lock().unwrap();
         let g = m.get_mut();
         let mut recover_i = false;
         let mut recover_s = false;
         if !self.dfg().value(value).used_by().is_empty(){
             let (reg, before) = g.get_space(value);
-            if let StorePos::Reg(reg_name) = reg{
+            if let Reg(reg_name) = reg{
                 reg_idx = reg_name;
             } else if let Stack(reg_name) = reg{
                 recover_i = true;
@@ -806,7 +806,7 @@ impl SplitGen for FunctionData {
             g.free_reg(tmp_reg);
         } else {
             let (src_reg, src_before) = g.get_space(src_value);
-            if let StorePos::Reg(reg_name) = src_reg{
+            if let Reg(reg_name) = src_reg{
                 src_reg_idx = reg_name;
             } else if let Stack(reg_name) = src_reg{
                 recover_s = true;
@@ -830,15 +830,15 @@ impl SplitGen for FunctionData {
             *s += &g.return_reg(load.src());
         }
     }
-    fn store_gen(&self, s: &mut String, store: &Store, global_varable_ref:
+    fn store_gen(&self, s: &mut String, store: &Store, global_variable_ref:
     &Ref<HashMap<Value, ValueData>>) {
         let value = store.value();
         let dest = store.dest();
-        let var = global_varable.lock().unwrap();
-        let mut m = global_reg_allocator.lock().unwrap();
+        let var = GLOBAL_VARIABLE.lock().unwrap();
+        let mut m = GLOBAL_REG_ALLOCATOR.lock().unwrap();
         let g = m.get_mut();
-        let mut value_reg= "".to_string();
-        let mut dest_reg = "".to_string();
+        let value_reg;
+        let dest_reg;
         let mut recover_value = false;
         let mut recover_dest = false;
         if let Some(name) = var.get(&dest){
@@ -865,13 +865,13 @@ impl SplitGen for FunctionData {
                 *s += &format!("\tsw {}, 0(t{})\n",value_reg, tmp);
                 g.free_reg(tmp);
             }
-        } else if check_used(self, &dest, global_varable_ref){
+        } else if check_used(self, &dest, global_variable_ref){
             if let (dest_reg_pos, dest_before) = g.get_space(dest){
                 if let Stack(reg_name) = dest_reg_pos{
                     dest_reg = reg_name;
                     *s += &dest_before;
                     recover_dest = true;
-                } else if let StorePos::Reg(reg_name) = dest_reg_pos{
+                } else if let Reg(reg_name) = dest_reg_pos{
                     dest_reg = reg_name;
                 } else {
                     unreachable!()
@@ -893,7 +893,7 @@ impl SplitGen for FunctionData {
                         if func_arg_ref.index() < 8 {
                             *s += &(format!("\tmv {}, a{}\n", dest_reg, func_arg_ref.index()));
                         } else {
-                            let mut k = now_sp_size.lock().unwrap();
+                            let mut k = NOW_SP_SIZE.lock().unwrap();
                             let sp_size = k.get_mut();
                             let src_offset = *sp_size + 4 * (func_arg_ref.index() as i32 - 8);
                             let (src_ss, src_reg) = g.get_offset_reg(src_offset);
@@ -902,7 +902,7 @@ impl SplitGen for FunctionData {
                             g.free_reg(src_reg);
                         }
                     } else if let (src_reg_pos, src_begin) = g.get_space(value){
-                        if let StorePos::Reg(reg_name) = src_reg_pos{
+                        if let Reg(reg_name) = src_reg_pos{
                             value_reg = reg_name;
                         } else if let Stack(reg_name) = src_reg_pos{
                             value_reg = reg_name;
@@ -933,7 +933,7 @@ impl SplitGen for FunctionData {
         let cond = branch.cond();
         let then_branch = branch.true_bb();
         let else_branch = branch.false_bb();
-        let mut k = global_reg_allocator.lock().unwrap();
+        let mut k = GLOBAL_REG_ALLOCATOR.lock().unwrap();
         let g = k.get_mut();
         let reg_idx ;
         let mut recover_cond = false;
@@ -947,7 +947,7 @@ impl SplitGen for FunctionData {
                 reg_idx = reg_name;
                 recover_cond = true;
                 *s += &before;
-            } else if let StorePos::Reg(reg_name) = reg{
+            } else if let Reg(reg_name) = reg{
                 reg_idx = reg_name;
             } else {
                 unreachable!()
@@ -987,7 +987,7 @@ impl SplitGen for FunctionData {
     fn call_gen(&self, s: &mut String, call: &Call, value: Value) {
         let arg_vec = call.args();
         let mut len = arg_vec.len() as i32;
-        let mut m = global_reg_allocator.lock().unwrap();
+        let mut m = GLOBAL_REG_ALLOCATOR.lock().unwrap();
         let g = m.get_mut();
         for i   in 0..min(len, 8){
             let idx = i as usize;
@@ -997,7 +997,7 @@ impl SplitGen for FunctionData {
                 let (arg_pos, beign_arg) = g.get_space(arg_vec[idx]);
                 let mut recover_arg = false;
                 let reg_idx;
-                if let StorePos::Reg(reg_name) = arg_pos{
+                if let Reg(reg_name) = arg_pos{
                     reg_idx = reg_name;
                 } else if let Stack(reg_name) = arg_pos{
                     reg_idx = reg_name;
@@ -1031,7 +1031,7 @@ impl SplitGen for FunctionData {
                     reg_idx = reg_name;
                     *s += &begin_pos;
                     recover_arg = true;
-                } else if let StorePos::Reg(reg_name) = arg_pos{
+                } else if let Reg(reg_name) = arg_pos{
                     reg_idx = reg_name;
                 } else {
                     unreachable!()
@@ -1047,9 +1047,9 @@ impl SplitGen for FunctionData {
             len = len - 1;
             idx = idx + 1;
         }
-        let m = global_function_name.lock().unwrap();
+        let m = GLOBAL_FUNCTION_NAME.lock().unwrap();
         *s += &format!("\tcall {}\n", m.get(&call.callee()).unwrap()[1..].to_string());
-        let t = global_function_type.lock().unwrap();
+        let t = GLOBAL_FUNCTION_TYPE.lock().unwrap();
         let a = t.get(&call.callee()).unwrap();
         if a == "i32" && !self.dfg().value(value).used_by().is_empty(){
             let (rst_idx, rst_begin) = g.get_space(value);
@@ -1059,7 +1059,7 @@ impl SplitGen for FunctionData {
                 reg = reg_name;
                 *s += &rst_begin;
                 recover_rst = true;
-            } else if let StorePos::Reg(reg_name) = rst_idx{
+            } else if let Reg(reg_name) = rst_idx{
                 reg = reg_name;
             } else {
                 unreachable!()
@@ -1078,20 +1078,20 @@ impl SplitGen for FunctionData {
         let src_reg;
         let mut tmp_src_reg = -1;
         let mut tmp_idx_reg = -1;
-        let mut m = global_reg_allocator.lock().unwrap();
-        let mut global_var = global_varable.lock().unwrap();
+        let mut m = GLOBAL_REG_ALLOCATOR.lock().unwrap();
+        let global_var = GLOBAL_VARIABLE.lock().unwrap();
         let g = m.get_mut();
         let mut ty_size = 0;
         let mut recover_src = false;
         g.store_type_bound(value, StoreType::Point);
-        let var_type = global_variable_type.lock().unwrap();
+        let var_type = GLOBAL_VARIABLE_TYPE.lock().unwrap();
         if let Some((global_var, size)) = var_type.get(&src){
             if  global_var.as_bytes()[0] == b'*'{
                 ty_size = *size;
             }
         } else {
             if let TypeKind::Pointer(p) = self.dfg().value(src).ty().kind(){
-                if let TypeKind::Array(ty, size) = p.kind(){
+                if let TypeKind::Array(ty, _) = p.kind(){
                     ty_size = ty.size() as i32;
                 }
             }
@@ -1103,7 +1103,7 @@ impl SplitGen for FunctionData {
             *s += &format!("\tli {}, {}\n",idx_reg, i.value());
         } else{
             let (idx_pos, begin_idx) = g.get_space(idx);
-            if let StorePos::Reg(reg_name) = idx_pos{
+            if let Reg(reg_name) = idx_pos{
                 idx_reg = reg_name;
             } else if let Stack(reg_name) = idx_pos{
                 idx_reg = reg_name;
@@ -1120,7 +1120,7 @@ impl SplitGen for FunctionData {
             *s += &format!("\tla {}, {}\n",src_reg, k[1..].to_string());
         }else if let ValueKind::GetElemPtr(_) = &self.dfg().value(src).kind() {
             let (src_pos, begin_src) = g.get_space(src.clone());
-            if let StorePos::Reg(reg_name) = src_pos {
+            if let Reg(reg_name) = src_pos {
                 src_reg = reg_name;
             } else if let Stack(reg_name) = src_pos {
                 src_reg = reg_name;
@@ -1131,7 +1131,7 @@ impl SplitGen for FunctionData {
             }
         }else if let ValueKind::GetPtr(_) = &self.dfg().value(src).kind() {
             let (src_pos, begin_src) = g.get_space(src.clone());
-            if let StorePos::Reg(reg_name) = src_pos {
+            if let Reg(reg_name) = src_pos {
                 src_reg = reg_name;
             } else if let Stack(reg_name) = src_pos {
                 src_reg = reg_name;
@@ -1159,7 +1159,7 @@ impl SplitGen for FunctionData {
             *s += &begin_ptr;
             recover_ptr = true;
             ptr_reg = reg_name;
-        } else if let StorePos::Reg(reg_name) = ptr_pos{
+        } else if let Reg(reg_name) = ptr_pos{
             ptr_reg = reg_name;
         } else {
             unreachable!()
@@ -1187,7 +1187,7 @@ impl SplitGen for FunctionData {
     fn get_ptr(&self, s: &mut String, get_ptr: &GetPtr, value: Value){
         let src = get_ptr.src();
         let idx = get_ptr.index();
-        let mut m = global_reg_allocator.lock().unwrap();
+        let mut m = GLOBAL_REG_ALLOCATOR.lock().unwrap();
         let g = m.get_mut();
         let ty_size;
         let src_reg;
@@ -1204,10 +1204,10 @@ impl SplitGen for FunctionData {
             src_reg = reg_name;
             *s += &src_begin;
             recover_src = true;
-        } else if let StorePos::Reg(reg_name) = src_reg_pos{
+        } else if let Reg(reg_name) = src_reg_pos{
             src_reg = reg_name;
         } else {
-            let mut m = global_varable.lock().unwrap();
+            let mut m = GLOBAL_VARIABLE.lock().unwrap();
             let k = m.get_mut(&src).unwrap();
             tmp_src_reg = g.alloc_tmp_reg().unwrap();
             src_reg = format!("t{}", tmp_src_reg);
@@ -1217,12 +1217,12 @@ impl SplitGen for FunctionData {
             ptr_reg = reg_name;
             *s += &ptr_begin;
             recover_ptr = true;
-        } else if let StorePos::Reg(reg_name) = ptr_reg_pos{
+        } else if let Reg(reg_name) = ptr_reg_pos{
             ptr_reg = reg_name;
         } else {
             unreachable!()
         }
-        let var_type = global_variable_type.lock().unwrap();
+        let var_type = GLOBAL_VARIABLE_TYPE.lock().unwrap();
         if let Some((global_var, size)) = var_type.get(&src){
             if  global_var.as_bytes()[0] == b'*'{
                 ty_size = *size;
@@ -1250,7 +1250,7 @@ impl SplitGen for FunctionData {
                 idx_reg = reg_name;
                 recover_idx = true;
                 *s += &begin_idx;
-            } else if let StorePos::Reg(reg_name) = idx_pos{
+            } else if let Reg(reg_name) = idx_pos{
                 idx_reg = reg_name;
             } else {
                 unreachable!()
